@@ -15,7 +15,9 @@ const arch = process.env.TM_ARCH === 'arm64' ? 'arm64' : 'x64';
 module.exports = {
   appId: require('./src/main/app-id'),
   productName: 'TokenMuncher',
-  files: ['src/main/**', 'src/shared/**', 'dist/**', 'assets/icon.ico', 'package.json'],
+  // better-sqlite3 ships prebuilt binaries for every platform; the app uses the
+  // one rebuilt for Electron in build/Release, so the others are left out.
+  files: ['src/main/**', 'src/shared/**', 'dist/**', 'assets/icon.ico', 'package.json', '!**/node_modules/better-sqlite3/prebuilds/**'],
   win: { target: [{ target: 'nsis', arch: [arch] }], icon: 'assets/icon.ico' },
   nsis: {
     oneClick: false,

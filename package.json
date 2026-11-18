@@ -1,6 +1,6 @@
 {
   "name": "tokenmuncher",
-  "version": "0.18.2",
+  "version": "0.18.3",
   "description": "Windows desktop monitor of Claude usage limits and token burn",
   "main": "src/main/main.js",
   "private": true,
@@ -23,6 +23,6 @@
     "react-dom": "^18.3.1"
   },
   "dependencies": {
-    "better-sqlite3": "^12.2.0"
+    "better-sqlite3": "^13.2.0"
   }
 }
