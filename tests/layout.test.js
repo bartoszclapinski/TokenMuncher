@@ -60,3 +60,13 @@ test('hide and show: a hidden panel comes back at the end', () => {
   assert.deepEqual(ids(move(h, 'heat', { beside: 'log', side: 'left' })).slice(-1), ['heat,log']);
   assert.deepEqual(move(h, 'heat', { beside: 'log', side: 'left' }).hidden, []);
 });
+
+test('usage export is movable and hideable and is added to older History layouts', () => {
+  const original = { rows: [[{ id: 'daily', w: 1 }]], hidden: ['weekly'] };
+  const updated = normalize(original, 'hist');
+  assert.ok(ids(updated).includes('usageExport'));
+  assert.equal(ids(move(updated, 'usageExport', { row: 'daily', where: 'above' }))[0], 'usageExport');
+  const hidden = hide(updated, 'usageExport');
+  assert.ok(!ids(hidden).includes('usageExport'));
+  assert.ok(normalize(hidden, 'hist').hidden.includes('usageExport'));
+});

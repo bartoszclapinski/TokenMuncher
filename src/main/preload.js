@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('tm', {
   mini: (cmd, arg) => ipcRenderer.send('mini', cmd, arg),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   sessionDetails: sid => ipcRenderer.invoke('session:details', sid),
+  exportUsage: (range, format) => ipcRenderer.invoke('history:export', range, format),
   setSetting: (name, value) => ipcRenderer.send('settings:set', name, value),
   onSettings: cb => ipcRenderer.on('settings', (_e, s) => cb(s)),
   onGoto: cb => ipcRenderer.on('goto', (_e, view) => cb(view)),

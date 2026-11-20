@@ -99,6 +99,8 @@ You get the start time, how long it ran and when it last answered. There are tok
 
 Values marked `~` are rebuilt from local logs (spend × the limit's percent per dollar). The others are server readings the app recorded. *partial* means the data doesn't reach the start of that window.
 
+The **usage export** panel's `[ export ]` action saves a local CSV or JSON file for this calendar week, this calendar month, or all retained records. Each row groups token types, API-equivalent USD cost and distinct sessions by local day, project, tool and model. Costs are rounded to six decimal places after summing. Sources switched off in Settings are excluded. Older stored week summaries do not contain the daily breakdown. Choose the destination in the system save dialog.
+
 ### Settings `[3]`
 
 ![Settings](docs/screenshots/settings.png)

@@ -336,6 +336,62 @@ function App() {
   );
 }
 
+const EXPORT_RANGES = [['week', 'this calendar week'], ['month', 'this calendar month'], ['all', 'all retained records']];
+const EXPORT_FORMATS = [['csv', 'csv'], ['json', 'json']];
+
+function ExportChoices({ label, options, value, onSelect, disabled }) {
+  return (
+    <div className="export-choices" role="radiogroup" aria-label={label} onKeyDown={radioKeys}>
+      <M>{label}: </M>
+      {options.map(([id, text]) => (
+        <span key={id} className={'opt link' + (disabled ? ' off' : '')}
+          role="radio" aria-checked={id === value} aria-disabled={disabled}
+          {...pressable(disabled ? null : () => onSelect(id), id === value ? 0 : -1)}>
+          [{text}]
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function UsageExport() {
+  const [open, setOpen] = useState(false);
+  const [range, setRange] = useState('week');
+  const [format, setFormat] = useState('csv');
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
+
+  const save = async () => {
+    setSaving(true);
+    setStatus('');
+    try {
+      const result = await window.tm.exportUsage(range, format);
+      if (result === 'saved') setStatus('Usage exported');
+      else if (result === 'error') setStatus('Could not save the usage export');
+    } catch {
+      setStatus('Could not save the usage export');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel title="usage export">
+      <div className="usage-export" onKeyDown={event => { if (event.defaultPrevented) event.stopPropagation(); }}>
+        <span className="opt link" role="button" aria-expanded={open} aria-controls="usage-export-options"
+          {...pressable(() => setOpen(value => !value))}>[ export ]</span>
+        <div id="usage-export-options" className="usage-export-options" hidden={!open}>
+          <ExportChoices label="range" options={EXPORT_RANGES} value={range} onSelect={setRange} disabled={saving} />
+          <ExportChoices label="format" options={EXPORT_FORMATS} value={format} onSelect={setFormat} disabled={saving} />
+          <span className={'opt link' + (saving ? ' off' : '')} role="button" aria-disabled={saving}
+            {...pressable(saving ? null : save)}>[ save ]</span>
+          <span role="status">{status}</span>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function TitleBar({ win }) {
   return (
     <div className="titlebar">
@@ -966,6 +1022,7 @@ function ByAppPanel({ snap }) {
 }
 
 const HIST_PANELS = {
+  usageExport: { name: 'usage export', min: 320, render: () => <UsageExport /> },
   winChart: { name: '5h window over time', min: 560, render: c => <WinChartPanels {...c} /> },
   winList: { name: '5h windows · 7 days', min: 380, render: c => <WinListPanels {...c} /> },
   weekly: { name: 'weekly limits', min: 560, render: c => <WeeklyPanel {...c} /> },

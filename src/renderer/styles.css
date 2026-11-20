@@ -29,6 +29,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); -
 .statusbar { flex-shrink: 0; padding: 6px 24px; background: var(--clay); color: var(--bg); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; user-select: none; }
 .key { cursor: pointer; }
 
+.usage-export-options:not([hidden]) { display: flex; align-items: baseline; gap: 4px 14px; flex-wrap: wrap; margin-top: 6px; }
+.export-choices { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.export-choices [aria-checked=true] { font-weight: 700; text-decoration: underline; }
+
 /* monthly billing cycles (history view); the per-day column drops out first */
 .wsum { display: flex; flex-wrap: wrap; gap: 4px 28px; }
 .wgrid { display: grid; grid-template-columns: 150px minmax(0,1fr) 90px 90px 70px 64px; gap: 10px; white-space: pre; }

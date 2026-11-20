@@ -14,6 +14,7 @@ const { MiniWidget } = require('./mini');
 const { critterLarge } = require('./icon');
 const { evaluate, markReached } = require('./notify');
 const { UsageCache } = require('./usage-cache');
+const { usageRows, formatUsage } = require('./usage-export');
 const { LimitHistory } = require('./limit-history');
 const { WeekSummaries, weeksDue, summarize, weekNews, weeklyLimit, NEWS_MS, SAME_MS } = require('./week-summary');
 const install = require('./install');
@@ -360,6 +361,27 @@ ipcMain.on('win', (_e, cmd) => {
   else if (cmd === 'ontop') setOnTop(!win.isAlwaysOnTop());
 });
 ipcMain.handle('session:details', (_e, sid) => (typeof sid === 'string' ? aggregator.sessionDetails(sid) : null));
+ipcMain.handle('history:export', async (event, range, format) => {
+  if (!['week', 'month', 'all'].includes(range) || !['csv', 'json'].includes(format)) return 'error';
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  if (!owner) return 'error';
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog(owner, {
+      title: 'Export usage',
+      defaultPath: `tokenmuncher-usage-${range}.${format}`,
+      filters: [{ name: format.toUpperCase(), extensions: [format] }]
+    });
+    if (canceled || !filePath) return 'cancelled';
+    const now = Date.now();
+    store.prepare(now);
+    const hidden = new Set(sources.filter(s => s.off).map(s => s.id));
+    const rows = usageRows(store.records, range, now, hidden);
+    await fs.promises.writeFile(filePath, formatUsage(rows, format), 'utf8');
+    return 'saved';
+  } catch {
+    return 'error';
+  }
+});
 ipcMain.on('refresh', () => sources.forEach(src => !src.off && src.refresh && src.refresh()));
 
 // ── options: shared by the tray menu and the settings panel ──
