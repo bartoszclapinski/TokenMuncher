@@ -1,6 +1,6 @@
 {
   "name": "tokenmuncher",
-  "version": "0.18.3",
+  "version": "0.19.0",
   "description": "Windows desktop monitor of Claude usage limits and token burn",
   "main": "src/main/main.js",
   "private": true,
