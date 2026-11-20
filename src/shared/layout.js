@@ -6,7 +6,7 @@
 //   layout: { rows: [[{ id, w }]], hidden: [id] }
 const PANELS = {
   live: ['critter', 'limits', 'budget', 'timeline', 'api', 'sessions', 'context', 'types', 'models', 'heat', 'log'],
-  hist: ['usageExport', 'winChart', 'winList', 'weekly', 'summary', 'monthly', 'daily', 'burners', 'byApp']
+  hist: ['winChart', 'winList', 'weekly', 'summary', 'monthly', 'daily', 'burners', 'byApp', 'usageExport']
 };
 
 const DEFAULTS = {
@@ -19,13 +19,13 @@ const DEFAULTS = {
     [['heat', 2], ['log', 3]]
   ],
   hist: [
-    [['usageExport', 1]],
     [['winChart', 3], ['winList', 2]],
     [['weekly', 1]],
     [['summary', 1]],
     [['monthly', 1]],
     [['daily', 1]],
-    [['burners', 3], ['byApp', 1]]
+    [['burners', 3], ['byApp', 1]],
+    [['usageExport', 1]]
   ]
 };
 

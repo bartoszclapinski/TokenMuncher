@@ -70,3 +70,9 @@ test('usage export is movable and hideable and is added to older History layouts
   assert.ok(!ids(hidden).includes('usageExport'));
   assert.ok(normalize(hidden, 'hist').hidden.includes('usageExport'));
 });
+
+test('usage export comes last in the default History layout', () => {
+  const rows = normalize(null, 'hist').rows;
+  assert.deepEqual(rows.at(-1).map(p => p.id), ['usageExport']);
+  assert.ok(!rows.slice(0, -1).flat().some(p => p.id === 'usageExport'));
+});
