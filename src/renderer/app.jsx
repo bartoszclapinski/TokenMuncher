@@ -6,6 +6,7 @@ import { critterRows, W } from '../shared/critter';
 import { THEMES, THEME_IDS, GROUPS, MASCOT_CHOICES, themeOf, mascotOf } from '../shared/themes';
 import { pad, hhmm, when, duration } from '../shared/clock';
 import { downloadText } from '../shared/download';
+import { accelFromEvent } from '../shared/hotkey';
 import { fmtTok, change } from '../shared/numbers';
 import { defaults as defaultLayout, normalize as normalizeLayout } from '../shared/layout';
 import { LayoutView } from './layout-view.jsx';
@@ -1279,13 +1280,14 @@ function HotkeyField({ name, label, value, startupError }) {
   const onKeyDown = e => {
     if (!rec) return;
     e.preventDefault();
-    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return; // wait for the real key
+    const r = accelFromEvent(e); // from the physical key (e.code), so Shift / AltGr do not change it
+    if (r.modifierOnly) return; // wait for the real key
     setRec(false);
-    if (e.key === 'Escape') return;
-    if (e.key === 'Backspace' || e.key === 'Delete') { save(''); return; }
-    const k = e.key === ' ' ? 'Space' : e.key === '+' ? 'Plus' : e.key.startsWith('Arrow') ? e.key.slice(5) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
-    const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
-    save([...mods, k].join('+'));
+    const bare = !(e.ctrlKey || e.altKey || e.shiftKey || e.metaKey);
+    if (bare && e.code === 'Escape') return;
+    if (bare && (e.code === 'Backspace' || e.code === 'Delete')) { save(''); return; }
+    if (r.unknown) { setErr('That key cannot be used in a shortcut'); return; }
+    save(r.accel);
   };
   const shown = err || startupError;
   return (

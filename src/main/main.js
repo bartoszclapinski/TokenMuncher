@@ -18,7 +18,7 @@ const { usageRows, formatUsage } = require('./usage-export');
 const { LimitHistory } = require('./limit-history');
 const { WeekSummaries, weeksDue, summarize, weekNews, weeklyLimit, NEWS_MS, SAME_MS } = require('./week-summary');
 const install = require('./install');
-const { normalize, applyChange, THRESHOLD_CHOICES, activeTheme, HOTKEY_KEYS, parseHotkey } = require('./settings');
+const { normalize, applyChange, THRESHOLD_CHOICES, activeTheme, HOTKEY_KEYS, setHotkey: setHotkeyIn } = require('./settings');
 const { Updater } = require('./update');
 const { themeOf, lookOf } = require('../shared/themes');
 const { buildReport } = require('./diagnostics');
@@ -441,7 +441,6 @@ function sendSettings() {
 // ── global shortcuts (settings hotkeyWindow / hotkeyMini; '' = off) ──
 const hotkeyAction = { hotkeyWindow: () => toggleWindow(), hotkeyMini: () => { if (mini) mini.toggle(); } };
 const hotkeyErrors = {}; // name -> why a stored shortcut is not active (e.g. taken by another app)
-const hotkeyLabel = { hotkeyWindow: 'the window', hotkeyMini: 'the mini widget' };
 function tryRegister(accel, name) {
   try { return globalShortcut.register(accel, hotkeyAction[name]); } catch { return false; }
 }
@@ -457,22 +456,9 @@ function registerHotkeys() {
 // One shortcut from the settings panel: validated and registered first, saved
 // only when both work. Returns { ok, error }.
 function setHotkey(name, value) {
-  if (!HOTKEY_KEYS.includes(name) || typeof value !== 'string') return { ok: false, error: 'Unknown shortcut' };
-  const accel = value === '' ? '' : parseHotkey(value);
-  if (accel === null) return { ok: false, error: 'Not a valid shortcut: use at least one modifier (Ctrl, Alt, Shift, Win) and one key' };
-  const other = HOTKEY_KEYS.find(k => k !== name);
-  if (accel && settings[other] === accel) return { ok: false, error: `${accel} is already the shortcut for ${hotkeyLabel[other]}` };
-  const old = settings[name];
-  if (accel !== old) {
-    if (old) globalShortcut.unregister(old);
-    if (accel && !tryRegister(accel, name)) {
-      if (old && !hotkeyErrors[name]) tryRegister(old, name); // keep the working one
-      return { ok: false, error: `${accel} could not be registered: another app is probably using it` };
-    }
-    settings[name] = accel;
-    saveSettings();
-  }
-  delete hotkeyErrors[name];
+  const r = setHotkeyIn(settings, hotkeyErrors, name, value, { register: tryRegister, unregister: a => globalShortcut.unregister(a) });
+  if (!r.ok) return { ok: false, error: r.error };
+  if (r.changed) saveSettings();
   optionsChanged();
   return { ok: true };
 }

@@ -49,12 +49,44 @@ function parseHotkey(v) {
     mods.push(m);
   }
   if (!mods.length) return null;
+  // CommandOrControl is Ctrl on Windows / Linux and Cmd (Super) on macOS, so
+  // next to either of those it names the same modifier twice
+  if (mods.includes('CommandOrControl') && (mods.includes('Ctrl') || mods.includes('Super'))) return null;
   const order = ['CommandOrControl', 'Ctrl', 'Alt', 'Shift', 'Super'];
   mods.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   const k = key.length === 1 ? key.toUpperCase() : HOTKEY_NAMED.find(n => n.toLowerCase() === key.toLowerCase()) || key.toUpperCase();
   return [...mods, k].join('+');
 }
 const hotkey = v => parseHotkey(v) || '';
+const HOTKEY_LABEL = { hotkeyWindow: 'the window', hotkeyMini: 'the mini widget' };
+
+// One shortcut from the settings panel: validated and registered first, put
+// in settings `s` only when both work. `errors` holds name -> why a stored
+// shortcut is not registered (e.g. it failed at startup); `reg` is
+// { register(accel, name) -> bool, unregister(accel) }.
+// Returns { ok, error, changed } (changed: s was modified and needs saving).
+function setHotkey(s, errors, name, value, reg) {
+  if (!HOTKEY_KEYS.includes(name) || typeof value !== 'string') return { ok: false, error: 'Unknown shortcut' };
+  const accel = value === '' ? '' : parseHotkey(value);
+  if (accel === null) return { ok: false, error: 'Not a valid shortcut: use at least one modifier (Ctrl, Alt, Shift, Win) and one key' };
+  const other = HOTKEY_KEYS.find(k => k !== name);
+  if (accel && s[other] === accel) return { ok: false, error: `${accel} is already the shortcut for ${HOTKEY_LABEL[other]}` };
+  const old = s[name];
+  const oldActive = !!old && !errors[name]; // stored and actually registered
+  let changed = false;
+  // the same combination that already works: nothing to do. The same one that
+  // failed (e.g. at startup) is tried again, and still refused if taken.
+  if (!(accel === old && (!accel || oldActive))) {
+    if (oldActive) reg.unregister(old);
+    if (accel && !reg.register(accel, name)) {
+      if (oldActive) reg.register(old, name); // keep the working one
+      return { ok: false, error: `${accel} could not be registered: another app is probably using it` };
+    }
+    if (accel !== old) { s[name] = accel; changed = true; }
+  }
+  delete errors[name];
+  return { ok: true, changed };
+}
 
 const bool = (v, d) => (typeof v === 'boolean' ? v : d);
 const THEME_MODES = ['fixed', 'auto'];
@@ -95,6 +127,8 @@ function normalize(raw) {
 // (array), threshold:<n> (toggle one), source:<id>, layout:<view> (a whole
 // layout, validated), theme (a skin id), mascot (a mascot id or 'auto'),
 // themeMode ('fixed' / 'auto'), themeDark (a dark skin), themeLight (a light skin).
+// Global shortcuts (HOTKEY_KEYS) are not changed here: they are saved only by
+// main.js setHotkey, after they registered.
 // Returns true when something changed; anything else is ignored.
 // A view's layout, validated; one equal to the default is not stored.
 function setLayout(s, view, value) {
@@ -107,7 +141,6 @@ const editable = s => JSON.stringify([BOOL_KEYS.map(k => s[k]), s.thresholds, s.
 function applyChange(s, name, value) {
   const before = editable(s);
   if (BOOL_KEYS.includes(name) && typeof value === 'boolean') s[name] = value;
-  else if (HOTKEY_KEYS.includes(name)) { if (value === '' || parseHotkey(value)) s[name] = hotkey(value); }
   else if (name === 'thresholds') s.thresholds = thresholds(value, s.thresholds);
   else if (name === 'theme') { if (THEME_IDS.includes(value)) s.theme = value; }
   else if (name === 'mascot') { if (MASCOT_CHOICES.includes(value)) s.mascot = value; }
@@ -127,4 +160,4 @@ function applyChange(s, name, value) {
   return editable(s) !== before;
 }
 
-module.exports = { DEFAULTS, BOOL_KEYS, SOURCE_IDS, THRESHOLD_CHOICES, HOTKEY_KEYS, parseHotkey, normalize, applyChange, activeTheme };
+module.exports = { DEFAULTS, BOOL_KEYS, SOURCE_IDS, THRESHOLD_CHOICES, HOTKEY_KEYS, parseHotkey, setHotkey, normalize, applyChange, activeTheme };
