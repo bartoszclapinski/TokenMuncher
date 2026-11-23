@@ -11,9 +11,23 @@ The parser is built so that a format change shows up as missing data, not as wro
 - it reads only files named `session-*.json` under `chats/` folders, and only fields listed here;
 - a file that is not one JSON object with a `messages` array is skipped and counted;
 - a message without a `tokens` object adds no usage;
+- `session-*.jsonl` files in a `chats/` folder are not read, only counted (`jsonlSessionFilesNotRead` in the diagnostics), so a release that moved to a line-per-record format shows up there instead of being parsed by guesswork;
 - *Settings → about → copy diagnostics* shows how many files and messages were recognised and which message types were skipped.
 
 If the numbers look wrong, that report is the place to start.
+
+### Not confirmed, check on a real install before release
+
+These parts are implemented but could not be checked against a machine with Gemini CLI or against its current source:
+
+| Point | What the reader does if it is wrong |
+|---|---|
+| sessions are `chats/session-*.json`, one JSON object each | nothing is read; `filesTracked` is 0, or `jsonlSessionFilesNotRead` is above 0 |
+| `GEMINI_CLI_HOME` moves the data to `$GEMINI_CLI_HOME/.gemini` | with the variable set, nothing is found; the report shows the folder that was looked at |
+| `.project_root` holds the project path | projects are named `gemini-<hash>` or after the folder, as in older releases |
+| an answer's `tokens` are written after the answer itself (first `null`, then filled in) and may be rewritten | handled either way: see "When a file changes" below |
+
+To check: run one short Gemini CLI session with a tool call, then open the newest file under `~/.gemini/tmp/*/chats/` and compare its fields with the tables below, and copy the diagnostics from TokenMuncher.
 
 ## Where things are
 
@@ -38,6 +52,14 @@ The Gemini CLI home is `~/.gemini` (`%USERPROFILE%\.gemini` on Windows). Newer r
 ## A session file
 
 One JSON object, **rewritten as a whole** every time a message is added or updated (not appended line by line). A file that stops changing is a finished or paused session; resuming a session continues the same file.
+
+### When a file changes
+
+TokenMuncher reads the whole file again and goes through every message:
+
+- the session exists from its first `"gemini"` answer, even before that answer has tokens, so tool calls written before the tokens are kept on it;
+- an answer is counted once, by its `id`. If its `tokens` change in a later rewrite, the counted numbers are replaced by the new ones (counted in the diagnostics as `answersUpdated`), not added a second time;
+- tool calls are kept once, by their `id`.
 
 ```jsonc
 {

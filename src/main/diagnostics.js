@@ -42,7 +42,7 @@ function buildReport({ app, settings, sources, counts, update, now = Date.now(),
     const st = s.status || {};
     const c = counts[s.id] || { records: 0, sessions: 0, lastTs: 0 };
     L.push('', `#### ${s.id}: ${s.detected ? 'detected' : 'not detected'}${s.off ? ', hidden in settings' : ''}`);
-    L.push(`- plan: ${st.plan ? st.plan.name : 'unknown'}; error: ${st.error || 'none'}; last reading ${ago(st.fetchedAt, now)}`);
+    L.push(`- plan: ${st.plan ? st.plan.name : st.note || 'unknown'}; error: ${st.error || 'none'}; last reading ${ago(st.fetchedAt, now)}`);
     if (s.limits.length) {
       L.push('- limits:');
       for (const l of s.limits) L.push(`  - ${l.key} (${l.kind}): ${+(+l.percent).toFixed(2)}%${l.est != null && Math.abs(l.est - l.percent) > 0.005 ? ` (est ${l.est.toFixed(2)}%)` : ''}, resets ${inTime(l.resetsAt, now)}${l.synthetic ? ', made up locally' : ''}`);

@@ -55,6 +55,10 @@ class GeminiSource {
     this.scannedAt = 0;
     this.filesRead = 0;        // since start (diagnostics)
     this.changes = 0;          // bumped when the file list changes (for the on-disk cache)
+    this.updated = 0;          // answers whose tokens changed after they were first counted (diagnostics)
+    this.otherFormat = 0;      // session-*.jsonl files seen at the last full scan: a format this reader doesn't know
+    this.recIdx = null;
+    this.recIdxCutoff = 0;
   }
 
   get enabled() { return fs.existsSync(this.root); }
@@ -74,6 +78,7 @@ class GeminiSource {
 
   async listFiles() {
     const out = [];
+    let other = 0;
     let dirs;
     try { dirs = await fsp.readdir(this.root, { withFileTypes: true }); } catch { return out; }
     for (const d of dirs) {
@@ -81,8 +86,12 @@ class GeminiSource {
       const chats = path.join(this.root, d.name, 'chats');
       let names;
       try { names = await fsp.readdir(chats); } catch { continue; }
-      for (const n of names) if (/^session-.*\.json$/.test(n)) out.push(path.join(chats, n));
+      for (const n of names) {
+        if (/^session-.*\.json$/.test(n)) out.push(path.join(chats, n));
+        else if (/^session-.*\.jsonl$/.test(n)) other++; // not read: counted so the diagnostics show a format change
+      }
     }
+    this.otherFormat = other;
     return out;
   }
 
@@ -170,21 +179,25 @@ class GeminiSource {
     const S = this.store;
     if (ts < S.cutoff) return;
     const model = typeof m.model === 'string' && m.model ? m.model.slice(0, 80) : 'gemini';
+    // The session exists from its first answer, with or without tokens yet, so
+    // a tool call written before the answer's tokens is kept on it.
+    const fresh = !S.sessions.has(sid);
+    const s = S.session(sid, { provider: 'gemini', project: P.name, app: APP, model });
+    s.project = P.name;
+    if (fresh) s.lastTs = ts;
 
-    if (t) {
-      const u = usageOf(t);
-      if (u.total > 0) {
-        const s = S.session(sid, { provider: 'gemini', project: P.name, app: APP, model });
-        s.project = P.name;
-        if (ts >= s.lastTs) {
-          s.lastTs = ts; s.model = model;
-          s.ctx = count(t.input); s.ctxMax = CONTEXT; s.ctxTs = ts;
-        }
-        S.addRecord(sid + ':' + (m.id || ts), {
-          ts, provider: 'gemini', sid, project: P.name, app: APP, model, fam: 'gemini',
-          in: u.in, out: u.out, cr: u.cr, cw: 0, total: u.total, cost: costGemini(model, u)
-        });
+    const u = t ? usageOf(t) : null;
+    if (u && u.total > 0) {
+      if (ts >= s.lastTs) {
+        s.lastTs = ts; s.model = model;
+        s.ctx = count(t.input); s.ctxMax = CONTEXT; s.ctxTs = ts;
       }
+      const rec = {
+        ts, provider: 'gemini', sid, project: P.name, app: APP, model, fam: 'gemini',
+        in: u.in, out: u.out, cr: u.cr, cw: 0, total: u.total, cost: costGemini(model, u)
+      };
+      if (S.addRecord(sid + ':' + (m.id || ts), rec)) this.recordIndex().set(sid + '|' + ts, rec);
+      else this.updateRecord(sid + '|' + ts, rec);
     }
     toolCalls.forEach((tc, i) => {
       const text = toolText(tc, P.cwd);
@@ -195,6 +208,29 @@ class GeminiSource {
       const s = S.sessions.get(sid);
       if (s && at >= s.lastTs - 1) s.lastAction = text;
     });
+  }
+
+  // sid|ts -> this source's record in the store. Built from the store on first
+  // use (records loaded from the on-disk cache) and again when its cutoff moves.
+  recordIndex() {
+    const S = this.store;
+    if (!this.recIdx || this.recIdxCutoff !== S.cutoff) {
+      this.recIdx = new Map();
+      for (const r of S.records) if (r.provider === 'gemini') this.recIdx.set(r.sid + '|' + r.ts, r);
+      this.recIdxCutoff = S.cutoff;
+    }
+    return this.recIdx;
+  }
+
+  // Gemini CLI rewrites the whole file, so an answer already counted comes
+  // back on every read. If its tokens changed since (an answer still being
+  // written), the stored record takes the new numbers instead of a second record.
+  updateRecord(key, rec) {
+    const r = this.recordIndex().get(key);
+    if (!r || (r.in === rec.in && r.out === rec.out && r.cr === rec.cr && r.model === rec.model)) return;
+    Object.assign(r, { model: rec.model, in: rec.in, out: rec.out, cr: rec.cr, total: rec.total, cost: rec.cost, project: rec.project });
+    this.store.changes++;
+    this.updated++;
   }
 
   diagnostics() {
@@ -211,7 +247,7 @@ class GeminiSource {
     }
     return {
       dataFolder: { path: this.root, exists: fs.existsSync(this.root) }, geminiHomeFromEnv: !!process.env.GEMINI_CLI_HOME,
-      filesTracked: this.files.size, filesRead: this.filesRead, parser
+      filesTracked: this.files.size, filesRead: this.filesRead, jsonlSessionFilesNotRead: this.otherFormat, answersUpdated: this.updated, parser
     };
   }
 

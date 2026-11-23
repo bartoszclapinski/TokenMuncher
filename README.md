@@ -225,7 +225,7 @@ Each source turns itself on only when its tool is installed and logged in (Gemin
 - **No per-request data** exists for claude.ai chat, Cowork and Copilot, so they appear only in limits.
 - **Forecasts:** "fits / runs out" uses the pace of the last 15 minutes. "Usual pace" uses your average usage per hour of the week since the logs begin, and needs a week of it.
 - **Codex** was tested on a synthetic log only.
-- **Gemini CLI** was written against its chat recording code and tested on a fabricated session file only. Older releases that do not record sessions in `chats/` show nothing. Without `.project_root` the project folder is named by a hash, shown as `gemini-` and its first 8 digits. The file format and what is read from it are in [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md).
+- **Gemini CLI** was written against its chat recording code and tested on a fabricated session file only; the file layout has not yet been checked on a real install (the open points are listed in the doc below). Older releases that do not record sessions in `chats/` show nothing, and so would a release that records them as `.jsonl` (the diagnostics count such files). Without `.project_root` the project folder is named by a hash, shown as `gemini-` and its first 8 digits. The file format and what is read from it are in [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md).
 
 ## Privacy: what is read and sent where
 
@@ -252,7 +252,7 @@ Each source turns itself on only when its tool is installed and logged in (Gemin
 - **Claude shows `rate limited · retry at …`:** the usage endpoint answered HTTP 429; the app waits as long as it asks. The decimals keep moving from local spend in the meantime.
 - **`login expired · open Claude Code`:** open Claude Code once; TokenMuncher never refreshes the login itself.
 - **Copilot is missing:** log in with the GitHub CLI (`gh auth login`) or set `GH_TOKEN`.
-- **Gemini CLI shows no tokens:** the copy diagnostics report lists how many session files and answers with tokens were found. Zero files means this Gemini CLI release does not record sessions where TokenMuncher looks (see [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md)).
+- **Gemini CLI shows no tokens:** the copy diagnostics report lists how many session files and answers with tokens were found. Zero files, or a count of `.jsonl` session files not read, means this Gemini CLI release does not record sessions where or how TokenMuncher expects (see [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md)).
 - **No notifications:** check *Settings → notifications*, Windows Focus assist, and that the Start Menu shortcut exists (the app repairs it at start).
 - **Update check says "rate limit":** GitHub allows 60 anonymous requests an hour per network address. The check runs again on its own; with the GitHub CLI logged in (`gh auth login`) it does not depend on that limit.
 - **Weird numbers after a big change:** delete `usage-cache.json` and restart. The logs are read again in full.

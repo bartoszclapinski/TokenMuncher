@@ -112,6 +112,103 @@ test('gemini: a rewritten file adds only its new answers', async () => {
   assert.equal(S.events.length, 2, 'tool calls are not repeated');
 });
 
+test('gemini: a tool call written before its answer has tokens stays on the session', async () => {
+  const { dir, file } = home();
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const answer = j.messages.find(m => m.id === 'msg-4');
+  const tokens = answer.tokens;
+  answer.tokens = null;
+  fs.writeFileSync(file, JSON.stringify(j));
+  const S = store();
+  const g = new GeminiSource(S, { home: dir });
+  await g.init();
+  assert.equal(S.records.length, 1);
+  assert.deepEqual(S.sessions.get(SID).actions.map(e => e.text), ['run_shell_command: <command>', 'read_file …/src/a.js']);
+  assert.equal(S.sessions.get(SID).lastAction, 'read_file …/src/a.js');
+
+  answer.tokens = tokens;
+  fs.writeFileSync(file, JSON.stringify(j));
+  await g.scan(true);
+  assert.equal(S.records.length, 2, 'the tokens are counted once they arrive');
+  assert.equal(S.events.length, 2);
+  assert.equal(S.sessions.get(SID).lastAction, 'read_file …/src/a.js');
+});
+
+test('gemini: a session seen only through an answer without tokens still exists', async () => {
+  const { dir, file } = home();
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const m of j.messages) if (m.type === 'gemini') m.tokens = null;
+  fs.writeFileSync(file, JSON.stringify(j));
+  const S = store();
+  await new GeminiSource(S, { home: dir }).init();
+  assert.equal(S.records.length, 0);
+  const s = S.sessions.get(SID);
+  assert.equal(s.lastTs, Date.parse('2026-11-20T10:00:05.000Z'));
+  assert.equal(s.actions.length, 2);
+});
+
+test('gemini: an answer whose tokens change in a later rewrite is updated, not counted twice', async () => {
+  const { dir, file } = home();
+  const S = store();
+  const g = new GeminiSource(S, { home: dir });
+  await g.init();
+  const before = S.changes;
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  j.messages.find(m => m.id === 'msg-4').tokens = { input: 5000, output: 300, cached: 1000, total: 5300 };
+  j.lastUpdated = '2026-11-20T10:02:45.000Z';
+  fs.writeFileSync(file, JSON.stringify(j));
+  await g.scan(true);
+  assert.equal(S.records.length, 2);
+  const r = S.records[1];
+  assert.deepEqual([r.in, r.cr, r.out, r.total], [4000, 1000, 300, 5300]);
+  assert.ok(Math.abs(r.cost - costGemini('gemini-2.5-flash', { in: 4000, cr: 1000, out: 300 })) < 1e-12);
+  assert.ok(S.changes > before, 'the on-disk cache is saved again');
+  assert.equal(g.diagnostics().answersUpdated, 1);
+
+  // after a restart the record comes from the cache, not from this run
+  const S2 = store();
+  S2.records = JSON.parse(JSON.stringify(S.records));
+  S2.seen = new Map(S.seen);
+  S2.sessions = new Map([...S.sessions].map(([k, v]) => [k, { ...v }]));
+  const again = new GeminiSource(S2, { home: dir });
+  j.messages.find(m => m.id === 'msg-4').tokens = { input: 6000, output: 400, cached: 1000, total: 6400 };
+  fs.writeFileSync(file, JSON.stringify(j));
+  await again.init();
+  assert.equal(S2.records.length, 2);
+  assert.deepEqual([S2.records[1].in, S2.records[1].out], [5000, 400]);
+});
+
+test('gemini: session-*.jsonl files are not read, only counted for the diagnostics', async () => {
+  const { dir, chats } = home();
+  fs.writeFileSync(path.join(chats, 'session-2026-11-20T13-00-33333333.jsonl'), '{"type":"gemini"}\n');
+  const S = store();
+  const g = new GeminiSource(S, { home: dir });
+  await g.init();
+  assert.equal(S.records.length, 2);
+  assert.equal(g.diagnostics().filesTracked, 1);
+  assert.equal(g.diagnostics().jsonlSessionFilesNotRead, 1);
+});
+
+test('gemini: "usage only" reaches the snapshot and the diagnostics report', async () => {
+  const { Aggregator } = require('../src/main/aggregate');
+  const { buildReport } = require('../src/main/diagnostics');
+  const { dir } = home();
+  const S = store();
+  const g = new GeminiSource(S, { home: dir });
+  await g.init();
+  const snap = new Aggregator(S, [g]).snapshot(true);
+  const p = snap.providers.find(x => x.id === 'gemini');
+  assert.equal(p.note, 'usage only');
+  assert.equal(p.plan, null);
+  const text = buildReport({
+    app: { version: '0.0.0', electron: '0', os: 'test', arch: 'x64', packaged: false },
+    settings: { sources: { gemini: true }, thresholds: [] },
+    sources: [{ id: 'gemini', detected: true, off: false, status: g.status(), limits: [], diagnostics: null }],
+    counts: {}, update: null, home: dir, user: 'nobody'
+  });
+  assert.match(text, /- plan: usage only;/);
+});
+
 test('gemini: the project name comes from .project_root, then a readable folder name', async () => {
   const S = store();
   const one = home(HASH, { '.project_root': '/work/demo-project\n' });

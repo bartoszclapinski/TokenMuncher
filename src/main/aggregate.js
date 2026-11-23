@@ -187,7 +187,7 @@ class Aggregator {
     const claude = providers.find(p => p.id === 'claude');
     return {
       now, ready, countsCacheReads: withCR,
-      providers: providers.map(p => ({ id: p.id, label: p.label, plan: p.plan, error: p.error, fetchedAt: p.fetchedAt })),
+      providers: providers.map(p => ({ id: p.id, label: p.label, plan: p.plan, note: p.note || null, error: p.error, fetchedAt: p.fetchedAt })),
       breakdown: (claude && claude.breakdown) || [],
       limits,
       burn: { rate: rateTotal, spark, sparkSpanSec: SPARK_BUCKETS * SPARK_STEP / 1000 },
