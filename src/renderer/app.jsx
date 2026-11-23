@@ -995,12 +995,13 @@ function BurnersPanel({ snap }) {
           <div key={p.project} className="burn">
             <M c={C.dim}>{i + 1}.</M><span className="ell">{p.project}</span><span className="ell c-app" style={{ color: provColor(p.app.startsWith('Cursor') ? 'cursor' : p.app.startsWith('Codex') ? 'codex' : 'claude') }}>{p.app} <M>· {p.model}</M></span>
             <span className="bar c-bar" style={{ color: famColor(p.fam) }}>{ascii(p.tokens / wMax, 30).fill}</span>
+            <span className="c-hit" style={{ textAlign: 'right', color: p.cache.rebuilds ? C.danger : undefined }} title={p.cache.rebuilds ? 'rebuilds its cache often' : 'cache hit rate'}>{p.cache.hitRate == null ? '—' : Math.round(p.cache.hitRate * 100) + '%'}{p.cache.rebuilds ? ' ⟳' : ''}</span>
             <span style={{ textAlign: 'right' }}>{fmtTok(p.tokens)}</span>
             <span style={{ textAlign: 'right', color: C.clay }}>${p.cost.toFixed(2)}</span>
           </div>
         ))}
       </div>
-      <M c={C.dim} style={{ marginTop: 6 }}>last column = API-price equivalent</M>
+      <M c={C.dim} style={{ marginTop: 6 }}>cache = hit rate (⟳ rebuilds its cache often) · last column = API-price equivalent</M>
     </Panel>
   );
 }
@@ -1106,6 +1107,12 @@ function SessionDetails({ sid, prec, onClose }) {
               <span style={{ textAlign: 'right' }}>{fmtTok(v)}</span>
             </div>
           ))}
+          <div style={{ display: 'grid', gridTemplateColumns: '100px minmax(0,24ch) 80px', gap: 10, whiteSpace: 'pre' }}>
+            <span>cache hit</span>
+            <M>cache write cost <span style={{ color: C.clay }}>${d.cache.cwCost.toFixed(2)}</span></M>
+            <span style={{ textAlign: 'right', color: d.cache.rebuilds ? C.danger : undefined }}>{d.cache.hitRate == null ? '—' : Math.round(d.cache.hitRate * 100) + '%'}</span>
+          </div>
+          {d.cache.rebuilds && <span style={{ color: C.danger }}>⟳ rebuilds its cache often: many cache writes, few reads</span>}
           <div style={{ display: 'grid', gridTemplateColumns: '100px minmax(0,24ch) 80px', gap: 10, whiteSpace: 'pre' }}>
             <span style={{ color: C.hi }}>total</span><M>API-price equivalent <span style={{ color: C.clay }}>${d.cost.toFixed(2)}</span></M><span style={{ textAlign: 'right', color: C.hi }}>{fmtTok(d.tokens)}</span>
           </div>

@@ -80,4 +80,4 @@ function costOpenAI(model, u) {
   return (u.in * row[1] + u.cr * row[2] + u.out * row[3]) / 1e6;
 }
 
-module.exports = { costOf, costOpenAI, family, displayName };
+module.exports = { priceOf, costOf,costOpenAI, family, displayName };
