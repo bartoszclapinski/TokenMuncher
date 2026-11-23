@@ -218,19 +218,19 @@ Each source turns itself on only when its tool is installed and logged in (Gemin
 | Cursor | cursor.com dashboard endpoints (unofficial), every 2 min | the same endpoints (per-request events); titles, repos and context from Cursor's local database | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` |
 | Codex | `rate_limits` in local rollout logs | `~/.codex/sessions/**/rollout-*.jsonl` (or `CODEX_HOME`) | none |
 | GitHub Copilot | `api.github.com/copilot_internal/user` (unofficial), every 5 min | not available | `gh auth token` or `GH_TOKEN` |
-| Gemini CLI | none: not kept on disk, shown as *usage only* | `~/.gemini/tmp/*/chats/session-*.json` (or `GEMINI_CLI_HOME`); the project name from `.project_root` next to `chats/` when present | none |
+| Gemini CLI | none: not kept on disk, shown as *usage only* | `~/.gemini/tmp/*/chats/session-*.json` and `session-*.jsonl` (or `GEMINI_CLI_HOME`); the project name from `.project_root` next to `chats/` when present | none |
 
 - **Decimals are estimates.** Claude returns whole percents. Between updates the app interpolates from local spend (percent per dollar of the current window). The same fills the gap between Cursor polls.
 - **"API equivalent"** uses the list prices in `src/main/pricing.js` (Codex and Gemini prices are approximate) and Cursor's own per-request cost. For Gemini CLI on a free tier it is what the same tokens would cost on the paid API.
 - **No per-request data** exists for claude.ai chat, Cowork and Copilot, so they appear only in limits.
 - **Forecasts:** "fits / runs out" uses the pace of the last 15 minutes. "Usual pace" uses your average usage per hour of the week since the logs begin, and needs a week of it.
 - **Codex** was tested on a synthetic log only.
-- **Gemini CLI** was written against its chat recording code and tested on a fabricated session file only; the file layout has not yet been checked on a real install (the open points are listed in the doc below). Older releases that do not record sessions in `chats/` show nothing, and so would a release that records them as `.jsonl` (the diagnostics count such files). Without `.project_root` the project folder is named by a hash, shown as `gemini-` and its first 8 digits. The file format and what is read from it are in [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md).
+- **Gemini CLI** support is experimental: it was tested on fabricated session files only, and the file layout has **not been checked on a real install** or against Gemini CLI's current code (the open points are listed in the doc below). Two layouts are read, one JSON object per session (`.json`) and one record per line (`.jsonl`); the second is the less certain one. If the layout is different, Gemini CLI shows no tokens, not wrong ones. Releases that do not record sessions in `chats/` show nothing. Without `.project_root` the project folder is named by a hash, shown as `gemini-` and its first 8 digits. The file format and what is read from it are in [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md).
 
 ## Privacy: what is read and sent where
 
 - Logins are **only read** from each tool's own files and sent **only to that tool's server** (Anthropic, Cursor, GitHub). They are never stored, logged or refreshed by TokenMuncher.
-- **Gemini CLI:** only the session files in `~/.gemini/tmp/*/chats/` and `.project_root` are read. From a session it takes the model, token counts and times of each answer, and the names of tool calls with their command (first line) or file path. It never reads the message text or thoughts, and never reads the Google login (`oauth_creds.json`, `google_accounts.json`). Nothing about Gemini CLI is sent anywhere.
+- **Gemini CLI:** only the session files in `~/.gemini/tmp/*/chats/` (`session-*.json`, `session-*.jsonl`) and `.project_root` are read. From a session it takes the model, token counts and times of each answer, and the names of tool calls with their command (first line) or file path. It never reads the message text or thoughts, and never reads the Google login (`oauth_creds.json`, `google_accounts.json`). Nothing about Gemini CLI is sent anywhere.
 - Usage data stays on this computer. The only other request is the update check to `api.github.com` (without a login; the GitHub CLI login is used only if GitHub refuses the anonymous request or answers "not found", for example at its rate limit), and the installer download from GitHub: in the background when a new version is found, or with that switched off, when you confirm an update.
 - Nothing else leaves the machine: no telemetry, no analytics.
 
@@ -252,7 +252,7 @@ Each source turns itself on only when its tool is installed and logged in (Gemin
 - **Claude shows `rate limited · retry at …`:** the usage endpoint answered HTTP 429; the app waits as long as it asks. The decimals keep moving from local spend in the meantime.
 - **`login expired · open Claude Code`:** open Claude Code once; TokenMuncher never refreshes the login itself.
 - **Copilot is missing:** log in with the GitHub CLI (`gh auth login`) or set `GH_TOKEN`.
-- **Gemini CLI shows no tokens:** the copy diagnostics report lists how many session files and answers with tokens were found. Zero files, or a count of `.jsonl` session files not read, means this Gemini CLI release does not record sessions where or how TokenMuncher expects (see [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md)).
+- **Gemini CLI shows no tokens:** the copy diagnostics report lists how many session files and answers with tokens were found. Zero files, or files but no answers with tokens, means this Gemini CLI release does not record sessions where or how TokenMuncher expects (see [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md)).
 - **No notifications:** check *Settings → notifications*, Windows Focus assist, and that the Start Menu shortcut exists (the app repairs it at start).
 - **Update check says "rate limit":** GitHub allows 60 anonymous requests an hour per network address. The check runs again on its own; with the GitHub CLI logged in (`gh auth login`) it does not depend on that limit.
 - **Weird numbers after a big change:** delete `usage-cache.json` and restart. The logs are read again in full.

@@ -4,12 +4,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Store } = require('../src/main/store');
-const { GeminiSource, usageOf, toolText } = require('../src/main/sources/gemini');
+const { GeminiSource, usageOf, toolText, linesOf } = require('../src/main/sources/gemini');
 const { costGemini } = require('../src/main/pricing');
 
 // A fabricated session file: Gemini CLI's structure, placeholder content.
 const FIXTURE = path.join(__dirname, 'fixtures', 'gemini-cli', 'session.json');
-const HASH = 'a'.repeat(64);
+const FIXTURE_JSONL = path.join(__dirname, 'fixtures', 'gemini-cli', 'session.jsonl');
+const HASH ='a'.repeat(64);
 const SID = 'gemini:00000000-0000-4000-8000-000000000001';
 
 // A fake ~/.gemini with the fixture in tmp/<project>/chats/.
@@ -178,15 +179,119 @@ test('gemini: an answer whose tokens change in a later rewrite is updated, not c
   assert.deepEqual([S2.records[1].in, S2.records[1].out], [5000, 400]);
 });
 
-test('gemini: session-*.jsonl files are not read, only counted for the diagnostics', async () => {
+test('gemini: a session-*.jsonl file, one record per line', async () => {
+  const { dir, chats, file } = home();
+  fs.rmSync(file);
+  const jsonl = path.join(chats, 'session-2026-11-20T11-00-00000002.jsonl');
+  fs.copyFileSync(FIXTURE_JSONL, jsonl);
+  const S = store();
+  const g = new GeminiSource(S, { home: dir });
+  await g.init();
+
+  const sid = 'gemini:00000000-0000-4000-8000-000000000002';
+  // msg-2 is written twice (first without tokens): counted once, with the later line's numbers.
+  // msg-3 was rewound away, but its tokens were spent, so it stays.
+  assert.deepEqual(S.records.map(r => [r.sid, r.mid, r.model, r.in, r.cr, r.out, r.total]), [
+    [sid, 'msg-2', 'gemini-2.5-pro', 1500, 500, 320, 2320],
+    [sid, 'msg-3', 'gemini-2.5-flash', 1500, 0, 50, 1550],
+    [sid, 'msg-4', 'gemini-2.5-flash', 600, 1000, 60, 1660]
+  ]);
+  assert.equal(S.sessions.get(sid).ctx, 1600);
+  assert.deepEqual(S.events.map(e => e.text), ['run_shell_command: <command>']);
+
+  const d = g.diagnostics();
+  assert.deepEqual([d.parser.jsonFiles, d.parser.jsonlFiles, d.parser.sessionFiles], [0, 1, 1]);
+  assert.equal(d.parser.answers, 3, 'a message written twice is one answer');
+  assert.equal(d.parser.withTokens, 3);
+  assert.equal(d.parser.otherLines, 2, 'the $set and $rewindTo lines');
+  assert.equal(d.parser.badLines, 0);
+  assert.deepEqual({ ...d.parser.messageTypes }, { user: 1, gemini: 3 });
+  assert.equal(d.answersUpdated, 0);
+
+  // appended lines: a new answer, a later copy of an old one with other tokens, and a line caught mid-write
+  fs.appendFileSync(jsonl, [
+    '{"id":"msg-5","timestamp":"2026-11-20T11:03:00.000Z","type":"gemini","model":"gemini-2.5-pro","tokens":{"input":100,"output":10,"cached":0,"total":110}}',
+    '{"id":"msg-4","timestamp":"2026-11-20T11:02:00.000Z","type":"gemini","model":"gemini-2.5-flash","tokens":{"input":1600,"output":90,"cached":1000,"total":1690}}',
+    '{"id":"msg-6","timestamp":"2026-11-20T11:04:00.000Z","type":"gem'
+  ].join('\n'));
+  await g.scan(true);
+  assert.equal(S.records.length, 4);
+  assert.equal(S.records.find(r => r.mid === 'msg-4').out, 90);
+  assert.equal(S.events.length, 1, 'tool calls are not repeated');
+  assert.equal(g.diagnostics().parser.badLines, 1);
+  assert.equal(g.diagnostics().answersUpdated, 1);
+});
+
+test('gemini: a .jsonl file with nothing recognisable is skipped and counted', async () => {
+  assert.deepEqual(linesOf('not json\n{"id":'), { bad: 'json' });
+  assert.deepEqual(linesOf('{"turns":[]}\n[1,2]\n'), { bad: 'shape' });
+  assert.deepEqual(linesOf(''), { bad: 'json' });
+  const one = linesOf('{"id":"a","type":"gemini"}\r\n\r\n{"sessionId":"s"}\r\n');
+  assert.deepEqual([one.sessionId, one.messages.length, one.badLines, one.otherLines], ['s', 1, 0, 0]);
+
   const { dir, chats } = home();
-  fs.writeFileSync(path.join(chats, 'session-2026-11-20T13-00-33333333.jsonl'), '{"type":"gemini"}\n');
+  fs.writeFileSync(path.join(chats, 'session-2026-11-20T13-00-33333333.jsonl'), '{"turns":[]}\n');
   const S = store();
   const g = new GeminiSource(S, { home: dir });
   await g.init();
   assert.equal(S.records.length, 2);
-  assert.equal(g.diagnostics().filesTracked, 1);
-  assert.equal(g.diagnostics().jsonlSessionFilesNotRead, 1);
+  const d = g.diagnostics();
+  assert.deepEqual([d.filesTracked, d.parser.jsonFiles, d.parser.jsonlFiles, d.parser.sessionFiles, d.parser.notSession], [2, 1, 1, 1, 1]);
+});
+
+test('gemini: two answers of one session at the same millisecond are kept apart', async () => {
+  const { dir, file } = home();
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const twin = { id: 'msg-4b', timestamp: '2026-11-20T10:02:00.000Z', type: 'gemini', content: '<answer>', model: 'gemini-2.5-pro', tokens: { input: 700, output: 7, cached: 0, total: 707 } };
+  j.messages.splice(4, 0, twin);
+  fs.writeFileSync(file, JSON.stringify(j));
+  const S = store();
+  const g = new GeminiSource(S, { home: dir });
+  await g.init();
+  assert.equal(S.records.length, 3);
+  const numbers = () => S.records.filter(r => r.ts === Date.parse(twin.timestamp)).map(r => [r.mid, r.model, r.in, r.out]);
+  assert.deepEqual(numbers(), [['msg-4', 'gemini-2.5-flash', 3000, 100], ['msg-4b', 'gemini-2.5-pro', 700, 7]]);
+
+  // a rewrite that changes nothing in them leaves both alone
+  const before = S.changes;
+  j.lastUpdated = '2026-11-20T10:05:00.000Z';
+  fs.writeFileSync(file, JSON.stringify(j, null, 1));
+  await g.scan(true);
+  assert.equal(g.filesRead, 2);
+  assert.deepEqual(numbers(), [['msg-4', 'gemini-2.5-flash', 3000, 100], ['msg-4b', 'gemini-2.5-pro', 700, 7]]);
+  assert.equal(S.changes, before);
+  assert.equal(g.diagnostics().answersUpdated, 0);
+
+  // and each one is updated on its own, also from the cache after a restart
+  twin.tokens = { input: 800, output: 8, cached: 0, total: 808 };
+  fs.writeFileSync(file, JSON.stringify(j));
+  const again = new GeminiSource(S, { home: dir });
+  await again.init();
+  assert.deepEqual(numbers(), [['msg-4', 'gemini-2.5-flash', 3000, 100], ['msg-4b', 'gemini-2.5-pro', 800, 8]]);
+  assert.equal(again.diagnostics().answersUpdated, 1);
+});
+
+test('gemini: odd message types do not reach the diagnostics as written', async () => {
+  const { dir, file } = home();
+  const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+  j.messages.push({ id: 'x1', timestamp: '2026-11-20T10:04:00.000Z', type: 'C:\\Users\\someone secret', content: '' });
+  j.messages.push({ id: 'x2', timestamp: '2026-11-20T10:04:01.000Z', type: 'x'.repeat(41), content: '' });
+  j.messages.push({ id: 'x3', timestamp: '2026-11-20T10:04:02.000Z', type: 'tool_group', content: '' });
+  j.messages.push({ id: 'x4', timestamp: '2026-11-20T10:04:03.000Z', type: 7, content: '' });
+  fs.writeFileSync(file, JSON.stringify(j));
+  const g = new GeminiSource(store(), { home: dir });
+  await g.init();
+  assert.deepEqual({ ...g.diagnostics().parser.messageTypes }, { user: 1, gemini: 3, info: 1, '?': 3, tool_group: 1 });
+});
+
+test('tray tooltip: a tool without limits shows its note, not "loading…"', () => {
+  const { tooltipText } = require('../src/shared/mini');
+  const gemini = { id: 'gemini', label: 'gemini', plan: null, note: 'usage only', error: null };
+  assert.equal(tooltipText({ providers: [gemini], limits: [] }), 'TokenMuncher\ngemini: usage only');
+  const claude = { id: 'claude', label: 'claude', plan: 'max', note: null, error: null };
+  assert.equal(tooltipText({ providers: [claude, gemini], limits: [] }), 'TokenMuncher\ngemini: usage only');
+  assert.equal(tooltipText({ providers: [claude], limits: [] }), 'TokenMuncher\nloading…');
+  assert.equal(tooltipText({ providers: [{ ...gemini, error: 'x' }], limits: [] }), 'TokenMuncher\ngemini: x');
 });
 
 test('gemini: "usage only" reaches the snapshot and the diagnostics report', async () => {
@@ -234,7 +339,7 @@ test('gemini: broken, foreign and unrelated files are skipped', async () => {
   await g.init();
   assert.equal(S.records.length, 2);
   const d = g.diagnostics();
-  assert.equal(d.filesTracked, 3, 'only chats/session-*.json');
+  assert.equal(d.filesTracked, 3, 'only chats/session-*.json and .jsonl');
   assert.equal(d.parser.badJson, 1);
   assert.equal(d.parser.notSession, 1);
   assert.equal(d.parser.sessionFiles, 1);

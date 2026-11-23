@@ -1,10 +1,11 @@
-// Gemini CLI: recorded chat sessions in ~/.gemini/tmp/<project>/chats/session-*.json
-// (or under GEMINI_CLI_HOME). Each file is one JSON object that Gemini CLI
-// rewrites whole on every message; answers of type "gemini" carry the token
-// counts of that request. No limits are kept on disk, so this source shows
-// usage only. Nothing is sent anywhere and the Google login is never read.
-// Format and its open questions: docs/sources/gemini-cli.md. Written against
-// Gemini CLI's chat recording code; tested on a fabricated file only.
+// Gemini CLI: recorded chat sessions in ~/.gemini/tmp/<project>/chats/ (or
+// under GEMINI_CLI_HOME). Two layouts are read: session-*.json, one JSON
+// object that Gemini CLI rewrites whole on every message, and session-*.jsonl,
+// one JSON record per line, appended. In both, answers of type "gemini" carry
+// the token counts of that request. No limits are kept on disk, so this source
+// shows usage only. Nothing is sent anywhere and the Google login is never read.
+// Neither layout has been checked on a real install: see "How sure this is" in
+// docs/sources/gemini-cli.md. Tested on fabricated files only.
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -41,6 +42,38 @@ function toolText(tc, cwd) {
   return p ? `${name} ${relPath(p, cwd)}` : name;
 }
 
+// session-*.json: one JSON object with the session id and all its messages.
+function wholeOf(text) {
+  let d;
+  try { d = JSON.parse(text); } catch { return { bad: 'json' }; } // also a file caught mid-write: read again once it changes
+  if (!d || typeof d !== 'object' || !Array.isArray(d.messages)) return { bad: 'shape' };
+  return { sessionId: typeof d.sessionId === 'string' ? d.sessionId : '', messages: d.messages, badLines: 0, otherLines: 0 };
+}
+
+// session-*.jsonl: one JSON record per line. A record with an `id` and a
+// `type` is a message, and a later record with the same id replaces the
+// earlier one (how an answer gets its tokens). A record with a `sessionId`
+// and no `id` is the session's header. Anything else (records that edit the
+// header or rewind the conversation) is only counted: the tokens of answers
+// that were rewound away were still spent, so those answers stay counted.
+function linesOf(text) {
+  const byId = new Map();
+  let sessionId = '', badLines = 0, otherLines = 0, objects = 0;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let o;
+    try { o = JSON.parse(line); } catch { badLines++; continue; } // also the last line caught mid-write
+    if (!o || typeof o !== 'object' || Array.isArray(o)) { badLines++; continue; }
+    objects++;
+    if (typeof o.id === 'string' && o.id && typeof o.type === 'string') byId.set(o.id, o);
+    else if (!sessionId && typeof o.sessionId === 'string' && o.sessionId && o.id === undefined) sessionId = o.sessionId;
+    else otherLines++;
+  }
+  if (!objects) return { bad: 'json' };
+  if (!byId.size && !sessionId) return { bad: 'shape' };
+  return { sessionId, messages: [...byId.values()], badLines, otherLines };
+}
+
 class GeminiSource {
   // opts.home: the .gemini folder (tests); default ~/.gemini or GEMINI_CLI_HOME/.gemini
   constructor(store, opts = {}) {
@@ -56,7 +89,6 @@ class GeminiSource {
     this.filesRead = 0;        // since start (diagnostics)
     this.changes = 0;          // bumped when the file list changes (for the on-disk cache)
     this.updated = 0;          // answers whose tokens changed after they were first counted (diagnostics)
-    this.otherFormat = 0;      // session-*.jsonl files seen at the last full scan: a format this reader doesn't know
     this.recIdx = null;
     this.recIdxCutoff = 0;
   }
@@ -78,7 +110,6 @@ class GeminiSource {
 
   async listFiles() {
     const out = [];
-    let other = 0;
     let dirs;
     try { dirs = await fsp.readdir(this.root, { withFileTypes: true }); } catch { return out; }
     for (const d of dirs) {
@@ -87,11 +118,9 @@ class GeminiSource {
       let names;
       try { names = await fsp.readdir(chats); } catch { continue; }
       for (const n of names) {
-        if (/^session-.*\.json$/.test(n)) out.push(path.join(chats, n));
-        else if (/^session-.*\.jsonl$/.test(n)) other++; // not read: counted so the diagnostics show a format change
+        if (/^session-.*\.jsonl?$/.test(n)) out.push(path.join(chats, n));
       }
     }
-    this.otherFormat = other;
     return out;
   }
 
@@ -154,19 +183,20 @@ class GeminiSource {
   // Parses one whole session file into the store. Returns what the file
   // held, for diagnostics: { bad } when it isn't a session, else { sum }.
   readSession(text, file) {
-    let d;
-    try { d = JSON.parse(text); } catch { return { bad: 'json' }; } // also a file caught mid-write: read again once it changes
-    if (!d || typeof d !== 'object' || !Array.isArray(d.messages)) return { bad: 'shape' };
+    const jsonl = file.endsWith('.jsonl');
+    const d = jsonl ? linesOf(text) : wholeOf(text);
+    if (d.bad) return { bad: d.bad };
     const P = this.projectFor(path.dirname(path.dirname(file)));
-    const sid = 'gemini:' + (typeof d.sessionId === 'string' && d.sessionId ? d.sessionId.slice(0, 80) : path.basename(file, '.json'));
-    const sum = { types: Object.create(null), answers: 0, withTokens: 0, noTimestamp: 0, toolCalls: 0 };
+    const sid = 'gemini:' + (d.sessionId ? d.sessionId.slice(0, 80) : path.basename(file, jsonl ? '.jsonl' : '.json'));
+    const sum = { types: Object.create(null), answers: 0, withTokens: 0, noTimestamp: 0, toolCalls: 0, badLines: d.badLines, otherLines: d.otherLines };
     for (const m of d.messages) this.onMessage(m, sid, P, sum);
     return { sum };
   }
 
   onMessage(m, sid, P, sum) {
     if (!m || typeof m !== 'object') return;
-    const type = typeof m.type === 'string' ? m.type.slice(0, 40) : '?';
+    // Only plain type names reach the diagnostics report, which users paste into public issues.
+    const type = typeof m.type === 'string' && /^[\w.-]{1,40}$/.test(m.type) ? m.type : '?';
     if (Object.hasOwn(sum.types, type) || KNOWN_TYPES.includes(type) || Object.keys(sum.types).length < 30) sum.types[type] = (sum.types[type] || 0) + 1;
     if (type !== 'gemini') return;
     sum.answers++;
@@ -186,6 +216,7 @@ class GeminiSource {
     s.project = P.name;
     if (fresh) s.lastTs = ts;
 
+    const mid = typeof m.id === 'string' && m.id ? m.id.slice(0, 80) : String(ts);
     const u = t ? usageOf(t) : null;
     if (u && u.total > 0) {
       if (ts >= s.lastTs) {
@@ -193,37 +224,39 @@ class GeminiSource {
         s.ctx = count(t.input); s.ctxMax = CONTEXT; s.ctxTs = ts;
       }
       const rec = {
-        ts, provider: 'gemini', sid, project: P.name, app: APP, model, fam: 'gemini',
+        ts, provider: 'gemini', sid, mid, project: P.name, app: APP, model, fam: 'gemini',
         in: u.in, out: u.out, cr: u.cr, cw: 0, total: u.total, cost: costGemini(model, u)
       };
-      if (S.addRecord(sid + ':' + (m.id || ts), rec)) this.recordIndex().set(sid + '|' + ts, rec);
-      else this.updateRecord(sid + '|' + ts, rec);
+      const key = sid + ':' + mid;
+      if (S.addRecord(key, rec)) this.recordIndex().set(key, rec);
+      else this.updateRecord(key, rec);
     }
     toolCalls.forEach((tc, i) => {
       const text = toolText(tc, P.cwd);
       if (!text) return;
       const at = Date.parse(tc.timestamp) || ts;
       if (at < S.cutoff) return;
-      S.addEvent(`${sid}:${tc.id || (m.id || ts) + ':' + i}`, { ts: at, provider: 'gemini', project: P.name, text, tok: 0, kind: 'tool' }, sid);
+      S.addEvent(`${sid}:${tc.id || mid + ':' + i}`, { ts: at, provider: 'gemini', project: P.name, text, tok: 0, kind: 'tool' }, sid);
       const s = S.sessions.get(sid);
       if (s && at >= s.lastTs - 1) s.lastAction = text;
     });
   }
 
-  // sid|ts -> this source's record in the store. Built from the store on first
+  // The store's record key (session id and message id) -> this source's record
+  // in the store; a record keeps its message id as `mid` for this. Built from the store on first
   // use (records loaded from the on-disk cache) and again when its cutoff moves.
   recordIndex() {
     const S = this.store;
     if (!this.recIdx || this.recIdxCutoff !== S.cutoff) {
       this.recIdx = new Map();
-      for (const r of S.records) if (r.provider === 'gemini') this.recIdx.set(r.sid + '|' + r.ts, r);
+      for (const r of S.records) if (r.provider === 'gemini') this.recIdx.set(r.sid + ':' + (r.mid || r.ts), r);
       this.recIdxCutoff = S.cutoff;
     }
     return this.recIdx;
   }
 
-  // Gemini CLI rewrites the whole file, so an answer already counted comes
-  // back on every read. If its tokens changed since (an answer still being
+  // The whole file is read again when it changes, so an answer already counted
+  // comes back on every read. If its tokens changed since (an answer still being
   // written), the stored record takes the new numbers instead of a second record.
   updateRecord(key, rec) {
     const r = this.recordIndex().get(key);
@@ -234,20 +267,21 @@ class GeminiSource {
   }
 
   diagnostics() {
-    const parser = { sessionFiles: 0, badJson: 0, notSession: 0, answers: 0, withTokens: 0, noTimestamp: 0, toolCalls: 0, messageTypes: Object.create(null) };
-    for (const f of this.files.values()) {
+    const parser = { jsonFiles: 0, jsonlFiles: 0, sessionFiles: 0, badJson: 0, notSession: 0, badLines: 0, otherLines: 0, answers: 0, withTokens: 0, noTimestamp: 0, toolCalls: 0, messageTypes: Object.create(null) };
+    for (const [p, f] of this.files) {
+      if (p.endsWith('.jsonl')) parser.jsonlFiles++; else parser.jsonFiles++;
       if (f.bad === 'json') parser.badJson++;
       else if (f.bad === 'shape') parser.notSession++;
       if (!f.sum) continue;
       parser.sessionFiles++;
-      for (const k of ['answers', 'withTokens', 'noTimestamp', 'toolCalls']) parser[k] += f.sum[k] || 0;
+      for (const k of ['answers', 'withTokens', 'noTimestamp', 'toolCalls', 'badLines', 'otherLines']) parser[k] += f.sum[k] || 0;
       for (const [k, n] of Object.entries(f.sum.types || {})) {
         if (Object.hasOwn(parser.messageTypes, k) || Object.keys(parser.messageTypes).length < 30) parser.messageTypes[k] = (parser.messageTypes[k] || 0) + n;
       }
     }
     return {
       dataFolder: { path: this.root, exists: fs.existsSync(this.root) }, geminiHomeFromEnv: !!process.env.GEMINI_CLI_HOME,
-      filesTracked: this.files.size, filesRead: this.filesRead, jsonlSessionFilesNotRead: this.otherFormat, answersUpdated: this.updated, parser
+      filesTracked: this.files.size, filesRead: this.filesRead, answersUpdated: this.updated, parser
     };
   }
 
@@ -257,4 +291,4 @@ class GeminiSource {
   limits() { return []; }
 }
 
-module.exports = { GeminiSource, usageOf, toolText };
+module.exports = { GeminiSource, usageOf, toolText, linesOf };

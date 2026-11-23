@@ -4,30 +4,33 @@ What Google's Gemini CLI (`@google/gemini-cli`) keeps on disk, what TokenMuncher
 
 ## How sure this is
 
-The format below comes from Gemini CLI's chat recording code (`ChatRecordingService` in `packages/core`), as shipped in the 2025 releases that introduced automatic session recording, and the `Storage` class that names its folders. It was written down **from that code, not checked against a machine with Gemini CLI installed**, and not re-checked against the newest release. Treat it the way the README treats Codex: tested on a fabricated file only.
+**The on-disk format has not been confirmed.** Nothing below was checked against a machine with Gemini CLI installed or against Gemini CLI's current source code. Until someone does the check at the end of this section, treat Gemini CLI support as experimental: it may show nothing.
 
-The parser is built so that a format change shows up as missing data, not as wrong data:
+What the description rests on:
 
-- it reads only files named `session-*.json` under `chats/` folders, and only fields listed here;
-- a file that is not one JSON object with a `messages` array is skipped and counted;
-- a message without a `tokens` object adds no usage;
-- `session-*.jsonl` files in a `chats/` folder are not read, only counted (`jsonlSessionFilesNotRead` in the diagnostics), so a release that moved to a line-per-record format shows up there instead of being parsed by guesswork;
-- *Settings → about → copy diagnostics* shows how many files and messages were recognised and which message types were skipped.
+- **`session-*.json` (one JSON object per session).** Written from Gemini CLI's chat recording code (`ChatRecordingService` in `packages/core`) as it was in the 2025 releases that introduced automatic session recording, and the `Storage` class that names its folders. From that code, not from a real file.
+- **`session-*.jsonl` (one record per line).** Later releases are believed to have moved to this layout. It is described **from memory of that change, without the source at hand**, and is the least certain part of this document.
 
-If the numbers look wrong, that report is the place to start.
+Because of that, the reader is built so that a wrong assumption shows up as missing data, not as wrong data:
+
+- it reads only files named `session-*.json` or `session-*.jsonl` directly under `chats/` folders, and only the fields listed here;
+- usage comes only from a message that has `type: "gemini"`, a `timestamp` and a `tokens` object with the fields of the TokensSummary table; anything shaped differently adds nothing;
+- a `.json` file that is not one JSON object with a `messages` array, or a `.jsonl` file with no message and no session header on any line, is skipped and counted;
+- *Settings → about → copy diagnostics* shows how many files of each kind were found, how many answers with tokens were recognised, which message types were seen, and how many lines were not understood.
 
 ### Not confirmed, check on a real install before release
 
-These parts are implemented but could not be checked against a machine with Gemini CLI or against its current source:
-
 | Point | What the reader does if it is wrong |
 |---|---|
-| sessions are `chats/session-*.json`, one JSON object each | nothing is read; `filesTracked` is 0, or `jsonlSessionFilesNotRead` is above 0 |
+| sessions are files named `session-*` in `~/.gemini/tmp/<project>/chats/` | nothing is read; `filesTracked` is 0 |
+| a `.json` session is one JSON object with `sessionId` and `messages` | the file is skipped; `notSession` or `badJson` is above 0 |
+| a `.jsonl` session has one JSON record per line, and a message line has the same fields as a message in the `.json` layout | no answers are found in it: `jsonlFiles` is above 0 while `withTokens` stays 0, or `otherLines` is high |
+| in `.jsonl`, an updated message is written again as a whole line with the same `id` | if updates are written some other way, an answer keeps the tokens of its first full line |
 | `GEMINI_CLI_HOME` moves the data to `$GEMINI_CLI_HOME/.gemini` | with the variable set, nothing is found; the report shows the folder that was looked at |
-| `.project_root` holds the project path | projects are named `gemini-<hash>` or after the folder, as in older releases |
-| an answer's `tokens` are written after the answer itself (first `null`, then filled in) and may be rewritten | handled either way: see "When a file changes" below |
+| `.project_root` holds the project path | projects are named `gemini-<hash>` or after the folder |
+| sessions of subagents, if a release keeps them in folders below `chats/` | they are not read, so their tokens are missing |
 
-To check: run one short Gemini CLI session with a tool call, then open the newest file under `~/.gemini/tmp/*/chats/` and compare its fields with the tables below, and copy the diagnostics from TokenMuncher.
+To check: run one short Gemini CLI session with a tool call, then open the newest file under `~/.gemini/tmp/*/chats/` and compare its fields with the tables below, and copy the diagnostics from TokenMuncher. If `withTokens` matches the number of answers in the session and the token numbers match `/stats`, this section can go.
 
 ## Where things are
 
@@ -35,7 +38,9 @@ The Gemini CLI home is `~/.gemini` (`%USERPROFILE%\.gemini` on Windows). Newer r
 
 | Path | What it is | Read by TokenMuncher |
 |---|---|---|
-| `~/.gemini/tmp/<project>/chats/session-<date>T<time>-<id>.json` | one recorded chat session | **yes** |
+| `~/.gemini/tmp/<project>/chats/session-<date>T<time>-<id>.json` | one recorded chat session, one JSON object | **yes** |
+| `~/.gemini/tmp/<project>/chats/session-<date>T<time>-<id>.jsonl` | one recorded chat session, one record per line (later releases; not confirmed) | **yes** |
+| folders below `chats/` | not known; possibly subagent sessions | no |
 | `~/.gemini/tmp/<project>/.project_root` | the project's folder path, one line (newer releases; not confirmed, used only if present) | **yes**, only to name the project |
 | `~/.gemini/tmp/<project>/logs.json` | the user's prompts (text only, no tokens) | no |
 | `~/.gemini/tmp/<project>/checkpoint-*.json` | chats saved with `/chat save` (full history, no tokens) | no |
@@ -51,15 +56,32 @@ The Gemini CLI home is `~/.gemini` (`%USERPROFILE%\.gemini` on Windows). Newer r
 
 ## A session file
 
+### `session-*.json`
+
 One JSON object, **rewritten as a whole** every time a message is added or updated (not appended line by line). A file that stops changing is a finished or paused session; resuming a session continues the same file.
+
+### `session-*.jsonl` (not confirmed)
+
+One JSON record per line, appended. TokenMuncher sorts the lines like this:
+
+| Line | Taken as | Used |
+|---|---|---|
+| has a string `id` and a string `type` | a MessageRecord, same fields as below. A later line with the same `id` replaces the earlier one | yes |
+| has a string `sessionId` and no `id` | the session header (the fields of the `.json` object without `messages`) | only `sessionId`, from the first such line |
+| anything else, e.g. `{"$set": {…}}` (a header update) or `{"$rewindTo": "<message id>"}` (the conversation was rewound) | not a message | no, counted as `otherLines` |
+| not a JSON object (also a last line caught mid-write) | | no, counted as `badLines` |
+
+A rewind removes messages from the conversation, but their tokens were already spent, so answers before a `$rewindTo` line stay counted.
 
 ### When a file changes
 
-TokenMuncher reads the whole file again and goes through every message:
+TokenMuncher reads the whole file again (both layouts) and goes through every message:
 
 - the session exists from its first `"gemini"` answer, even before that answer has tokens, so tool calls written before the tokens are kept on it;
-- an answer is counted once, by its `id`. If its `tokens` change in a later rewrite, the counted numbers are replaced by the new ones (counted in the diagnostics as `answersUpdated`), not added a second time;
+- an answer is counted once, by its session and message `id` (two answers with the same timestamp are still two answers). If its `tokens` change in a later rewrite or a later line, the counted numbers are replaced by the new ones (counted in the diagnostics as `answersUpdated`), not added a second time;
 - tool calls are kept once, by their `id`.
+
+The `.json` object:
 
 ```jsonc
 {
@@ -80,7 +102,7 @@ Every message has:
 |---|---|---|
 | `id` | string, unique in the session | key that stops a message being counted twice when the file is rewritten |
 | `timestamp` | ISO 8601 | time of the usage |
-| `type` | `"user"`, `"gemini"`, `"info"`, `"error"`, `"warning"` | only `"gemini"` carries usage |
+| `type` | `"user"`, `"gemini"`, `"info"`, `"error"`, `"warning"` | only `"gemini"` carries usage. The diagnostics count messages per type; a type that is not a plain name (letters, digits, `_`, `.`, `-`, up to 40) is counted as `?` |
 | `content` | the message text or parts | **never read** |
 
 A `"gemini"` message (one model answer) may also have:

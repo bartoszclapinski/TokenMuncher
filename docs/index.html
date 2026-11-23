@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TokenMuncher: see how much of your AI coding plan is left</title>
-<meta name="description" content="A free Windows desktop monitor for Claude Code, Cursor, Codex and GitHub Copilot limits: usage, burn rate and forecasts in one window, a tray icon and a mini widget.">
+<meta name="description" content="A free Windows desktop monitor for Claude Code, Cursor, Codex and GitHub Copilot limits: usage, burn rate and forecasts in one window, a tray icon and a mini widget. Also counts Gemini CLI tokens.">
 <meta property="og:title" content="TokenMuncher">
 <meta property="og:description" content="See how much of your Claude Code, Cursor, Codex and Copilot limits is left, and whether you will make it to the next reset.">
 <meta property="og:image" content="https://bartoszclapinski.github.io/TokenMuncher/screenshots/live.png">
@@ -33,7 +33,7 @@
     <div class="wrap">
       <div>
         <h1>See how much of your AI coding plan is <em>left</em>.</h1>
-        <p class="lead">TokenMuncher is a small Windows app that watches your Claude Code, Cursor, Codex and GitHub Copilot limits: how much you have used, how fast you are burning tokens, and whether you will make it to the next reset.</p>
+        <p class="lead">TokenMuncher is a small Windows app that watches your Claude Code, Cursor, Codex and GitHub Copilot limits: how much you have used, how fast you are burning tokens, and whether you will make it to the next reset. It also counts Gemini CLI tokens and sessions.</p>
         <div class="cta">
           <a class="btn" id="download" href="https://github.com/bartoszclapinski/TokenMuncher/releases/latest">download for Windows <small>latest release</small></a>
           <span class="alt"><a id="download-arm" href="https://github.com/bartoszclapinski/TokenMuncher/releases/latest">ARM64 installer</a> · <a href="https://github.com/bartoszclapinski/TokenMuncher">source code</a></span>
@@ -146,7 +146,7 @@
     <div class="wrap">
       <p class="label">supported tools</p>
       <h2>What it can show for each tool</h2>
-      <p class="sub">Each source turns itself on only when its tool is installed and logged in.</p>
+      <p class="sub">Each source turns itself on only when its tool is installed and logged in (Gemini CLI: when its data folder exists).</p>
       <div class="scroll">
         <table class="tools">
           <thead><tr><th>tool</th><th>limits</th><th>tokens and sessions</th></tr></thead>
@@ -155,10 +155,11 @@
             <tr><td>Cursor</td><td>monthly quota</td><td>per-request events from your Cursor dashboard</td></tr>
             <tr><td>Codex</td><td>from the local session logs</td><td>from the local session logs</td></tr>
             <tr><td>GitHub Copilot</td><td>monthly quota</td><td>not available</td></tr>
+            <tr><td>Gemini CLI</td><td>not available (usage only)</td><td>from the local session files</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="note">Limits for Claude, Cursor and Copilot come from unofficial endpoints of those tools and can stop working when they change. Codex support was tested on a synthetic log only.</p>
+      <p class="note">Limits for Claude, Cursor and Copilot come from unofficial endpoints of those tools and can stop working when they change. Codex support was tested on a synthetic log only. Gemini CLI support is experimental: tested on fabricated session files only, not yet on a real install, and nothing about Gemini CLI is sent anywhere.</p>
     </div>
   </section>
 
