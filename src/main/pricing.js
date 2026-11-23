@@ -80,4 +80,23 @@ function costOpenAI(model, u) {
   return (u.in * row[1] + u.cr * row[2] + u.out * row[3]) / 1e6;
 }
 
-module.exports = { costOf, costOpenAI, family, displayName };
+// Gemini API list prices (Gemini CLI), standard tier, prompts up to 200k tokens.
+// [prefix, input, cached input, output] per MTok; thinking tokens bill as output.
+// Approximate: unknown models fall back by name to flash-lite, flash or 2.5 pro.
+const GEMINI = [
+  ['gemini-3-pro', 2, 0.2, 12],
+  ['gemini-3-flash', 0.5, 0.05, 3],
+  ['gemini-2.5-pro', 1.25, 0.125, 10],
+  ['gemini-2.5-flash-lite', 0.1, 0.01, 0.4],
+  ['gemini-2.5-flash', 0.3, 0.03, 2.5],
+  ['gemini-2.0-flash-lite', 0.075, 0.01875, 0.3],
+  ['gemini-2.0-flash', 0.1, 0.025, 0.4],
+];
+function costGemini(model, u) {
+  const m = model || '';
+  const row = GEMINI.find(r => m.startsWith(r[0]))
+    || GEMINI.find(r => r[0] === (/flash-lite/.test(m) ? 'gemini-2.5-flash-lite' : /flash/.test(m) ? 'gemini-2.5-flash' : 'gemini-2.5-pro'));
+  return (u.in * row[1] + u.cr * row[2] + u.out * row[3]) / 1e6;
+}
+
+module.exports = { costOf, costOpenAI, costGemini, family, displayName };

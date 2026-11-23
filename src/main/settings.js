@@ -3,7 +3,7 @@
 const layout = require('../shared/layout');
 const { THEMES, THEME_IDS, DEFAULT_THEME, MASCOT_CHOICES } = require('../shared/themes');
 
-const SOURCE_IDS = ['claude', 'cursor', 'codex', 'copilot'];
+const SOURCE_IDS = ['claude', 'cursor', 'codex', 'copilot', 'gemini'];
 const THRESHOLD_CHOICES = [50, 70, 80, 90, 100];
 
 const DEFAULTS = {

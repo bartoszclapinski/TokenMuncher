@@ -1,6 +1,6 @@
 # TokenMuncher
 
-A Windows desktop monitor for AI coding plans. It shows how much of your **Claude Code, Cursor, Codex and GitHub Copilot** limits you have used, how fast you are burning tokens, and whether you will make it to the next reset. Everything sits in one terminal-style window, a small always-on-top widget and the tray.
+A Windows desktop monitor for AI coding plans. It shows how much of your **Claude Code, Cursor, Codex and GitHub Copilot** limits you have used, how fast you are burning tokens, and whether you will make it to the next reset. It also counts **Gemini CLI** tokens and sessions (usage only: Gemini CLI keeps no limits on disk). Everything sits in one terminal-style window, a small always-on-top widget and the tray.
 
 **Website:** [bartoszclapinski.github.io/TokenMuncher](https://bartoszclapinski.github.io/TokenMuncher/)
 
@@ -14,7 +14,7 @@ A Windows desktop monitor for AI coding plans. It shows how much of your **Claud
 - **Stays out of the way:** tray icon colored by the busiest limit, notifications at the thresholds you pick, and a mini widget.
 - **Local first:** reads the usage data your tools already keep on this computer and talks only to those tools' own servers.
 
-> TokenMuncher is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, Anysphere (Cursor) or GitHub. It uses unofficial endpoints that may change or stop working.
+> TokenMuncher is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, Anysphere (Cursor), GitHub or Google. It uses unofficial endpoints that may change or stop working.
 
 ---
 
@@ -109,7 +109,7 @@ The **usage export** panel's `[ export ]` action saves a local CSV or JSON file 
 |---|---|
 | **general** | start with Windows (in the tray), start in the tray also when opened by hand, window always on top, mini widget |
 | **notifications** | on/off; thresholds 50 / 70 / 80 / 90 / 100%; warning ~30 min before the 5h window runs out; week summary; send a test notification |
-| **sources** | show or hide Claude, Cursor, Codex, Copilot. A hidden source makes no requests and is left out of every view and notification. Its local logs are still read, so nothing is missing when you turn it back on. |
+| **sources** | show or hide Claude, Cursor, Codex, Copilot, Gemini CLI. A hidden source makes no requests and is left out of every view and notification. Its local logs are still read, so nothing is missing when you turn it back on. |
 | **display** | precision of the percents (0.01 / 0.001 / 0.0001%), zoom, layout editing, count cache reads in token numbers |
 | **theme** | the mascot (`auto` = the skin's own, or any of nine); the skin: one of 26 in four groups, or **follow Windows** with a dark and a light pick (see [Skins](#skins)) |
 | **updates** | check for updates; download updates in the background; state and download progress, *check now*, *download and install* / *install now*, *cancel*, *what's new* |
@@ -210,7 +210,7 @@ A small always-on-top window with the critter, the burn rate, the four most-used
 
 ## Where the numbers come from
 
-Each source turns itself on only when its tool is installed and logged in.
+Each source turns itself on only when its tool is installed and logged in (Gemini CLI: when its data folder exists).
 
 | Tool | Limits | Tokens, sessions, log | Login used (read only) |
 |---|---|---|---|
@@ -218,16 +218,19 @@ Each source turns itself on only when its tool is installed and logged in.
 | Cursor | cursor.com dashboard endpoints (unofficial), every 2 min | the same endpoints (per-request events); titles, repos and context from Cursor's local database | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` |
 | Codex | `rate_limits` in local rollout logs | `~/.codex/sessions/**/rollout-*.jsonl` (or `CODEX_HOME`) | none |
 | GitHub Copilot | `api.github.com/copilot_internal/user` (unofficial), every 5 min | not available | `gh auth token` or `GH_TOKEN` |
+| Gemini CLI | none: not kept on disk, shown as *usage only* | `~/.gemini/tmp/*/chats/session-*.json` (or `GEMINI_CLI_HOME`); the project name from `.project_root` next to `chats/` when present | none |
 
 - **Decimals are estimates.** Claude returns whole percents. Between updates the app interpolates from local spend (percent per dollar of the current window). The same fills the gap between Cursor polls.
-- **"API equivalent"** uses the list prices in `src/main/pricing.js` (Codex prices are approximate) and Cursor's own per-request cost.
+- **"API equivalent"** uses the list prices in `src/main/pricing.js` (Codex and Gemini prices are approximate) and Cursor's own per-request cost. For Gemini CLI on a free tier it is what the same tokens would cost on the paid API.
 - **No per-request data** exists for claude.ai chat, Cowork and Copilot, so they appear only in limits.
 - **Forecasts:** "fits / runs out" uses the pace of the last 15 minutes. "Usual pace" uses your average usage per hour of the week since the logs begin, and needs a week of it.
 - **Codex** was tested on a synthetic log only.
+- **Gemini CLI** was written against its chat recording code and tested on a fabricated session file only. Older releases that do not record sessions in `chats/` show nothing. Without `.project_root` the project folder is named by a hash, shown as `gemini-` and its first 8 digits. The file format and what is read from it are in [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md).
 
 ## Privacy: what is read and sent where
 
 - Logins are **only read** from each tool's own files and sent **only to that tool's server** (Anthropic, Cursor, GitHub). They are never stored, logged or refreshed by TokenMuncher.
+- **Gemini CLI:** only the session files in `~/.gemini/tmp/*/chats/` and `.project_root` are read. From a session it takes the model, token counts and times of each answer, and the names of tool calls with their command (first line) or file path. It never reads the message text or thoughts, and never reads the Google login (`oauth_creds.json`, `google_accounts.json`). Nothing about Gemini CLI is sent anywhere.
 - Usage data stays on this computer. The only other request is the update check to `api.github.com` (without a login; the GitHub CLI login is used only if GitHub refuses the anonymous request or answers "not found", for example at its rate limit), and the installer download from GitHub: in the background when a new version is found, or with that switched off, when you confirm an update.
 - Nothing else leaves the machine: no telemetry, no analytics.
 
@@ -249,6 +252,7 @@ Each source turns itself on only when its tool is installed and logged in.
 - **Claude shows `rate limited · retry at …`:** the usage endpoint answered HTTP 429; the app waits as long as it asks. The decimals keep moving from local spend in the meantime.
 - **`login expired · open Claude Code`:** open Claude Code once; TokenMuncher never refreshes the login itself.
 - **Copilot is missing:** log in with the GitHub CLI (`gh auth login`) or set `GH_TOKEN`.
+- **Gemini CLI shows no tokens:** the copy diagnostics report lists how many session files and answers with tokens were found. Zero files means this Gemini CLI release does not record sessions where TokenMuncher looks (see [docs/sources/gemini-cli.md](docs/sources/gemini-cli.md)).
 - **No notifications:** check *Settings → notifications*, Windows Focus assist, and that the Start Menu shortcut exists (the app repairs it at start).
 - **Update check says "rate limit":** GitHub allows 60 anonymous requests an hour per network address. The check runs again on its own; with the GitHub CLI logged in (`gh auth login`) it does not depend on that limit.
 - **Weird numbers after a big change:** delete `usage-cache.json` and restart. The logs are read again in full.
@@ -258,7 +262,7 @@ Each source turns itself on only when its tool is installed and logged in.
 1. Open *Settings → about* and click **`[ copy diagnostics ]`**. A report goes to the clipboard. Nothing is sent anywhere.
 2. Open an [issue](https://github.com/bartoszclapinski/TokenMuncher/issues/new/choose), describe what you see, and paste the report. Add a screenshot if it helps.
 
-The report has the app, Electron and Windows versions, your settings, and for each tool: detected or not, plan, errors, limits, and counts of records, sessions, log files and lines read. For Codex it also shows which log lines the parser recognised and which types it skipped, which catches log format changes. It has no logins or tokens, no conversation text, no project names or commands, and your home folder shows as `~`. Read it before you paste it.
+The report has the app, Electron and Windows versions, your settings, and for each tool: detected or not, plan, errors, limits, and counts of records, sessions, log files and lines read. For Codex and Gemini CLI it also shows which log lines or messages the parser recognised and which types it skipped, which catches log format changes. It has no logins or tokens, no conversation text, no project names or commands, and your home folder shows as `~`. Read it before you paste it.
 
 ---
 

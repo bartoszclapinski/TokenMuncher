@@ -1,4 +1,4 @@
-// Shared in-memory store that every source (Claude Code, Codex, Cursor) writes into.
+// Shared in-memory store that every source (Claude Code, Codex, Cursor, Gemini CLI) writes into.
 // A record is one model response:
 //   { ts, provider, sid, project, app, model, fam, in, out, cr, cw, total, cost, bucket? }
 // cost is the API-list-price equivalent in USD.

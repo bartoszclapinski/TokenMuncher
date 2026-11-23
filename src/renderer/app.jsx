@@ -418,7 +418,7 @@ function Header({ snap, prec, now }) {
         {provs.map(p => (
           <span key={p.id} title={p.error || (p.fetchedAt ? `synced ${Math.round((now - p.fetchedAt) / 1000)} s ago` : 'loading…')}>
             <span style={{ color: p.error ? C.danger : provColor(p.id) }}>{p.label}</span>
-            <M> {p.plan ? p.plan.name : '…'}{p.error ? ' ✗' : ''} · </M>
+            <M> {p.plan ? p.plan.name : p.note || '…'}{p.error ? ' ✗' : ''} · </M>
           </span>
         ))}
         <M>live 1 s · precision {'0.' + '0'.repeat(prec - 1) + '1'}% est</M>
@@ -472,10 +472,10 @@ function LimitsPanel({ snap, prec, lupa, now }) {
           <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ borderBottom: `1px dashed ${C.rule}`, paddingBottom: 2 }}>
               <span style={{ color: provColor(p.id) }}>■ {p.label}</span>
-              <M> · {p.plan ? p.plan.name + ' plan' : '…'}</M>
+              <M> · {p.plan ? p.plan.name + ' plan' : p.note || '…'}</M>
               {p.error && <M c={C.danger}> · {p.error}</M>}
               {p.fetchedAt > 0 && now - p.fetchedAt > STALE_MS && <M c={C.warn}> · synced {fmtAgo(now - p.fetchedAt)} ago</M>}
-              {!p.error && !rows.length && <M> · {p.fetchedAt ? 'no limits reported yet' : 'loading…'}</M>}
+              {!p.error && !p.note && !rows.length && <M> · {p.fetchedAt ? 'no limits reported yet' : 'loading…'}</M>}
             </div>
             {rows.map(l => <LimitRow key={l.key} l={l} lupa={lupa} breakdown={l.key === 'claude:weekly_all' ? snap.breakdown : null} />)}
           </div>
@@ -993,7 +993,7 @@ function BurnersPanel({ snap }) {
       <div>
         {wk.map((p, i) => (
           <div key={p.project} className="burn">
-            <M c={C.dim}>{i + 1}.</M><span className="ell">{p.project}</span><span className="ell c-app" style={{ color: provColor(p.app.startsWith('Cursor') ? 'cursor' : p.app.startsWith('Codex') ? 'codex' : 'claude') }}>{p.app} <M>· {p.model}</M></span>
+            <M c={C.dim}>{i + 1}.</M><span className="ell">{p.project}</span><span className="ell c-app" style={{ color: provColor(p.app.startsWith('Cursor') ? 'cursor' : p.app.startsWith('Codex') ? 'codex' : p.app.startsWith('Gemini') ? 'gemini' : 'claude') }}>{p.app} <M>· {p.model}</M></span>
             <span className="bar c-bar" style={{ color: famColor(p.fam) }}>{ascii(p.tokens / wMax, 30).fill}</span>
             <span style={{ textAlign: 'right' }}>{fmtTok(p.tokens)}</span>
             <span style={{ textAlign: 'right', color: C.clay }}>${p.cost.toFixed(2)}</span>
