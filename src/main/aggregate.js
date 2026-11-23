@@ -66,6 +66,11 @@ class Aggregator {
     let rateTotal = 0;
     const win5 = now - 5 * HOUR, week = now - 7 * DAY;
     const withCR = this.countCacheReads();
+    // Sessions with responses before the week of the project list: their first
+    // response inside the week is not a cold start.
+    const olderSids = new Set();
+    for (const r of S.records) if (r.ts < week) olderSids.add(r.sid);
+    const startedEarlier = sid => olderSids.has(sid) || !!(S.sessions.get(sid) || {}).cut;
 
     for (const r of S.records) {
       if (hidden.has(r.provider)) continue;
@@ -85,7 +90,7 @@ class Aggregator {
       }
       if (ts >= week) {
         const p = topWeek.get(r.project) || { project: r.project, tokens: 0, cost: 0, byModel: {}, byApp: {}, cache: emptyCache() };
-        addCache(p.cache, r);
+        addCache(p.cache, r, startedEarlier(r.sid));
         p.tokens += tok; p.cost += r.cost; p.byModel[r.model] = (p.byModel[r.model] || 0) + r.cost; p.byApp[r.app] = (p.byApp[r.app] || 0) + tok;
         topWeek.set(r.project, p);
       }
@@ -236,7 +241,7 @@ class Aggregator {
     const cacheAcc = emptyCache();
     let tokens = 0, cost = 0;
     for (const r of recs) {
-      addCache(cacheAcc, r);
+      addCache(cacheAcc, r, !!s.cut); // cut: its first responses are older than the store keeps
       types.in += r.in; types.out += r.out; types.cr += r.cr; types.cw += r.cw;
       tokens += tok(r); cost += r.cost;
       const name = displayName(r.model); // ids that differ only by date or [1m] share a row

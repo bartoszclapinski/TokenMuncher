@@ -130,3 +130,94 @@ test('aggregator reports cache per session details and per project', () => {
   assert.equal(p.cache.rebuilds, true);
   assert.equal(q.cache.rebuilds, false);
 });
+
+test('cache write cost follows the record cost: Cursor charges are not mixed with list prices', () => {
+  const m = 'claude-sonnet-4-5';
+  const tok = { model: m, in: 1000, out: 2000, cr: 50000, cw: 40000, cw1: 0 };
+  const { costOf } = require('../src/main/pricing');
+  const list = costOf(m, { in: 1000, out: 2000, cr: 50000, cw5: 40000, cw1: 0 });
+  // Claude Code: cost is the list price, so the write cost is the list price of the writes
+  assert.ok(Math.abs(C.recordCacheWriteCost({ ...tok, cost: list }) - C.cacheWriteCost(m, 40000)) < 1e-12);
+  // Cursor charged a tenth of the list price: the write cost shrinks with it
+  const charged = C.recordCacheWriteCost({ ...tok, cost: list / 10 });
+  assert.ok(Math.abs(charged - C.cacheWriteCost(m, 40000) / 10) < 1e-12);
+  assert.ok(charged < list / 10, 'never above the cost of the record');
+  // a response Cursor did not charge for has no cache write cost either
+  assert.equal(C.recordCacheWriteCost({ ...tok, cost: 0 }), 0);
+  // only cache writes in the record: the whole cost, not more
+  assert.ok(Math.abs(C.recordCacheWriteCost({ model: m, cw: 40000, cost: 0.01 }) - 0.01) < 1e-12);
+  assert.equal(C.recordCacheWriteCost({ model: 'gpt-5', cw: 40000, cost: 0.5 }), null);
+  assert.equal(C.recordCacheWriteCost({ model: m, cw: 0, cost: 0.5 }), 0);
+  assert.equal(C.recordCacheWriteCost(undefined), 0);
+  const acc = C.emptyCache();
+  for (let i = 0; i < 5; i++) C.addCache(acc, { ...tok, sid: 'cursor:x', ts: i, cost: 0.02 });
+  assert.ok(C.cacheSummary(acc).cwCost <= 0.1 + 1e-12, 'session write cost stays within the session cost');
+});
+
+test('the cold start is the earliest record, whatever the order records arrive in', () => {
+  const n = C.CACHE_REBUILD_MIN_EVENTS;
+  // cold start (ts 1), then a healthy response, then n rebuilds
+  const recs = [{ ts: 1, cw: big, cr: 0 }, { ts: 2, cw: 500, cr: big }, ...Array.from({ length: n }, (_, i) => ({ ts: 3 + i, cw: big, cr: 0 }))]
+    .map(r => ({ ...r, sid: 'a' }));
+  const sorted = feed(recs), reversed = feed(recs.slice().reverse());
+  const mixed = feed([recs[2], recs[0], recs[4], recs[1], recs[3]]);
+  assert.equal(sorted.rebuildCount, n);
+  assert.deepEqual(reversed, sorted);
+  assert.deepEqual(mixed, sorted);
+  // the earliest record is healthy: every rebuild counts, in any order
+  const warmFirst = [{ ts: 1, cw: 500, cr: big }, ...Array.from({ length: n }, (_, i) => ({ ts: 2 + i, cw: big, cr: 0 }))].map(r => ({ ...r, sid: 'a' }));
+  assert.equal(feed(warmFirst).rebuildCount, n);
+  assert.equal(feed(warmFirst.slice().reverse()).rebuildCount, n);
+});
+
+test('a session that started before the counted records has no cold start among them', () => {
+  const n = C.CACHE_REBUILD_MIN_EVENTS;
+  const acc = C.emptyCache();
+  for (let i = 0; i < n; i++) C.addCache(acc, { model: 'claude-opus-4-5', sid: 'a', ts: i, in: 10, cw: big, cr: 0 }, true);
+  C.addCache(acc, { model: 'claude-opus-4-5', sid: 'b', ts: 0, in: 10, cw: big, cr: 0 }); // a fresh one beside it
+  const s = C.cacheSummary(acc);
+  assert.equal(s.rebuildCount, n);
+  assert.equal(s.rebuilds, true);
+});
+
+test('aggregator: responses before the week or before the store cutoff are not a cold start', () => {
+  const DAYMS = 86400e3, now = Date.now(), n = C.CACHE_REBUILD_MIN_EVENTS;
+  const base = { provider: 'claude', app: 'Claude Code', model: 'claude-opus-4-5', fam: 'opus', in: 100, out: 10, cr: 0, cw: 50000, total: 50110, cost: 1 };
+  const src = { id: 'claude', enabled: true, status: () => ({ id: 'claude', label: 'claude' }), limits: () => [] };
+  const S = new Store();
+  const ses = (sid, project) => { S.session(sid, { provider: 'claude', project, app: 'Claude Code', model: base.model }).lastTs = now - 1000; };
+  // old: one response 7.5 days ago (outside the week, inside the store), then n full writes this week
+  ses('claude:old', 'p');
+  assert.equal(S.addRecord('o', { ...base, ts: now - 7.5 * DAYMS, sid: 'claude:old', project: 'p', cw: 0 }), true);
+  for (let i = 0; i < n; i++) S.addRecord('o' + i, { ...base, ts: now - 5000 + i, sid: 'claude:old', project: 'p' });
+  // cut: its first responses are older than the store keeps
+  ses('claude:cut', 'q');
+  assert.equal(S.addRecord('c', { ...base, ts: S.cutoff - 1, sid: 'claude:cut', project: 'q' }), false);
+  for (let i = 0; i < n; i++) S.addRecord('c' + i, { ...base, ts: now - 4000 + i, sid: 'claude:cut', project: 'q' });
+  // fresh: the same n full writes, the first of them its cold start
+  ses('claude:new', 'r');
+  for (let i = 0; i < n; i++) S.addRecord('n' + i, { ...base, ts: now - 3000 + i, sid: 'claude:new', project: 'r' });
+  const agg = new Aggregator(S, [src]);
+  const top = agg.snapshot(true).topWeek, of = name => top.find(x => x.project === name).cache;
+  assert.equal(of('p').rebuildCount, n);
+  assert.equal(of('p').rebuilds, true);
+  assert.equal(of('q').rebuildCount, n);
+  assert.equal(of('r').rebuildCount, n - 1);
+  assert.equal(of('r').rebuilds, false);
+  assert.equal(agg.sessionDetails('claude:cut').cache.rebuildCount, n);
+  assert.equal(agg.sessionDetails('claude:new').cache.rebuildCount, n - 1);
+  // the mark survives the on-disk cache
+  const S2 = new Store();
+  S2.fromJSON(JSON.parse(JSON.stringify(S.toJSON())));
+  assert.equal(S2.sessions.get('claude:cut').cut, true);
+  assert.equal(S2.sessions.get('claude:new').cut, undefined);
+  // and pruning sets it: move the cutoff past the old session's first response
+  assert.equal(S.sessions.get('claude:old').cut, undefined);
+  S.cutoff = now - 30 * DAYMS; // as if the store had kept more
+  const later = now - 7 * DAYMS;
+  const keep = Store.cutoffFor;
+  Store.cutoffFor = () => later;
+  try { S.prepare(now); } finally { Store.cutoffFor = keep; }
+  assert.equal(S.sessions.get('claude:old').cut, true);
+  assert.equal(agg.sessionDetails('claude:old').cache.rebuildCount, n);
+});
