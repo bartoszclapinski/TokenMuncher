@@ -1109,7 +1109,7 @@ function SessionDetails({ sid, prec, onClose }) {
           ))}
           <div style={{ display: 'grid', gridTemplateColumns: '100px minmax(0,24ch) 80px', gap: 10, whiteSpace: 'pre' }}>
             <span>cache hit</span>
-            <M>cache write cost <span style={{ color: C.clay }}>${d.cache.cwCost.toFixed(2)}</span></M>
+            <M>cache write cost <span style={{ color: C.clay }} title={d.cache.cwUnpriced > 0 ? 'cache writes of models without a known API price are left out' : 'API-price equivalent of cache writes'}>{d.cache.cwUnpriced > 0 && d.cache.cwCost === 0 ? 'n/a' : '$' + d.cache.cwCost.toFixed(2) + (d.cache.cwUnpriced > 0 ? '+' : '')}</span></M>
             <span style={{ textAlign: 'right', color: d.cache.rebuilds ? C.danger : undefined }}>{d.cache.hitRate == null ? '—' : Math.round(d.cache.hitRate * 100) + '%'}</span>
           </div>
           {d.cache.rebuilds && <span style={{ color: C.danger }}>⟳ rebuilds its cache often: many cache writes, few reads</span>}
