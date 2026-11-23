@@ -1,7 +1,8 @@
 // Shared in-memory store that every source (Claude Code, Codex, Cursor) writes into.
 // A record is one model response:
-//   { ts, provider, sid, project, app, model, fam, in, out, cr, cw, total, cost, bucket? }
-// cost is the API-list-price equivalent in USD.
+//   { ts, provider, sid, project, app, model, fam, in, out, cr, cw, cw1?, total, cost, bucket? }
+// cw is all cache-write tokens, cw1 the part of them written with a 1-hour TTL
+// (missing = 0). cost is the API-list-price equivalent in USD.
 const DAY = 86400e3;
 const ACTIONS_PER_SESSION = 12; // last actions kept on each session, for its details panel
 
