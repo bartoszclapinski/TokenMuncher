@@ -6,7 +6,7 @@ import { critterRows, W } from '../shared/critter';
 import { THEMES, THEME_IDS, GROUPS, MASCOT_CHOICES, themeOf, mascotOf } from '../shared/themes';
 import { pad, hhmm, when, duration } from '../shared/clock';
 import { downloadText } from '../shared/download';
-import { accelFromEvent } from '../shared/hotkey';
+import { recorderProps } from '../shared/hotkey';
 import { fmtTok, change } from '../shared/numbers';
 import { defaults as defaultLayout, normalize as normalizeLayout } from '../shared/layout';
 import { LayoutView } from './layout-view.jsx';
@@ -262,6 +262,7 @@ function App() {
   const toggleLupa = () => setLupa(x => !x);
   useEffect(() => {
     const onKey = e => {
+      if (e.defaultPrevented) return; // a control took the key (e.g. a shortcut field that is recording)
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key === 'Escape') { if (editingRef.current) setEditing(false); else setSelected(null); return; }
       const k = e.key.toLowerCase();
@@ -1268,8 +1269,8 @@ function SkinGroups({ label, only, picked, mascot, onPick }) {
   );
 }
 
-// Records a global shortcut: click, press the combination (Esc cancels,
-// Backspace / Delete clears). The main process validates and registers it.
+// Records a global shortcut: click (or Enter / Space), press the combination
+// (Esc cancels, Backspace / Delete clears, Tab leaves). The main process validates and registers it.
 function HotkeyField({ name, label, value, startupError }) {
   const [rec, setRec] = useState(false);
   const [err, setErr] = useState('');
@@ -1277,25 +1278,15 @@ function HotkeyField({ name, label, value, startupError }) {
     const r = await window.tm.setHotkey(name, v);
     setErr(r && !r.ok ? r.error : '');
   };
-  const onKeyDown = e => {
-    if (!rec) return;
-    e.preventDefault();
-    const r = accelFromEvent(e); // from the physical key (e.code), so Shift / AltGr do not change it
-    if (r.modifierOnly) return; // wait for the real key
-    setRec(false);
-    const bare = !(e.ctrlKey || e.altKey || e.shiftKey || e.metaKey);
-    if (bare && e.code === 'Escape') return;
-    if (bare && (e.code === 'Backspace' || e.code === 'Delete')) { save(''); return; }
-    if (r.unknown) { setErr('That key cannot be used in a shortcut'); return; }
-    save(r.accel);
-  };
+  // All the field's handlers come from recorderProps (shared/hotkey.js, unit-tested).
+  // Do not add pressable() or another onKeyDown to the span: it would replace the recorder.
+  const field = recorderProps(rec, { start: () => { setErr(''); setRec(true); }, stop: () => setRec(false), save, fail: setErr });
   const shown = err || startupError;
   return (
     <div>
       <div className="opt-line">
         <M>{label}</M>
-        <span className="opt chip" role="button" tabIndex={0} aria-label={label + ' shortcut'} onKeyDown={onKeyDown} onBlur={() => setRec(false)}
-          {...pressable(() => setRec(true))}>
+        <span className="opt chip" role="button" aria-label={label + ' shortcut'} {...field}>
           {rec ? 'press a combination…' : value || 'off'}
         </span>
         {value && !rec && <span className="opt link" role="button" {...pressable(() => save(''))}>[ clear ]</span>}

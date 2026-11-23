@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseHotkey, setHotkey, normalize, applyChange } = require('../src/main/settings');
-const { accelFromEvent } = require('../src/shared/hotkey');
+const { accelFromEvent, recordKey, recorderProps } = require('../src/shared/hotkey');
 
 test('global shortcuts are off by default', () => {
   const s = normalize({});
@@ -113,8 +113,159 @@ test('accelFromEvent uses the physical key, so Shift and AltGr layouts work', ()
   assert.deepEqual(accelFromEvent(ev('AltRight', 'AltGraph', { ctrlKey: true, altKey: true })), { modifierOnly: true });
   assert.deepEqual(accelFromEvent(ev('MediaPlayPause', 'MediaPlayPause', { ctrlKey: true })), { unknown: true });
   // every recorded combination with a modifier is one parseHotkey accepts
-  for (const code of ['KeyZ', 'Digit0', 'Numpad7', 'Minus', 'Equal', 'Comma', 'Period', 'Slash', 'Backquote', 'Quote', 'BracketLeft', 'BracketRight', 'Backslash', 'Space', 'Enter', 'Tab', 'Home', 'PageDown', 'F24']) {
+  for (const code of ['KeyZ', 'Digit0', 'NumpadAdd', 'NumpadSubtract', 'NumpadMultiply', 'NumpadDivide', 'Minus', 'Equal', 'Comma', 'Period', 'Slash', 'Backquote', 'Quote', 'BracketLeft', 'BracketRight', 'Backslash', 'Space', 'Enter', 'Tab', 'Home', 'PageDown', 'F24']) {
     const { accel } = accelFromEvent(ev(code, '?', { ctrlKey: true, shiftKey: true }));
     assert.equal(parseHotkey(accel), accel, code);
   }
+});
+
+test('parseHotkey refuses Shift as the only modifier (it would swallow typing in every app)', () => {
+  for (const bad of ['Shift+T', 'Shift+Space', 'Shift+1', 'shift+F5', 'Shift+num7']) assert.equal(parseHotkey(bad), null, bad);
+  assert.equal(parseHotkey('Alt+Shift+T'), 'Alt+Shift+T');
+  assert.equal(parseHotkey('Super+Shift+Space'), 'Shift+Super+Space');
+  assert.equal(normalize({ hotkeyWindow: 'Shift+T' }).hotkeyWindow, '');
+  const s = normalize({});
+  const r = setHotkey(s, {}, 'hotkeyWindow', 'Shift+T', fakeReg());
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Shift alone is not enough/);
+  assert.equal(s.hotkeyWindow, '');
+});
+
+const keyEvent = (code, key, mods = {}) => ({ code, key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods });
+
+test('numpad keys keep their own accelerator names', () => {
+  // NumLock on: the keypad digit, not the top-row one
+  assert.deepEqual(accelFromEvent(keyEvent('Numpad7', '7', { ctrlKey: true })), { accel: 'Ctrl+num7' });
+  assert.deepEqual(accelFromEvent(keyEvent('Digit7', '7', { ctrlKey: true })), { accel: 'Ctrl+7' });
+  assert.deepEqual(accelFromEvent(keyEvent('NumpadDecimal', ',', { ctrlKey: true })), { accel: 'Ctrl+numdec' });
+  // NumLock off or Shift held: the key acts as (and is sent as) the navigation key
+  assert.deepEqual(accelFromEvent(keyEvent('Numpad7', 'Home', { ctrlKey: true, shiftKey: true })), { accel: 'Ctrl+Shift+Home' });
+  assert.deepEqual(accelFromEvent(keyEvent('Numpad0', 'Insert', { altKey: true })), { accel: 'Alt+Insert' });
+  assert.deepEqual(accelFromEvent(keyEvent('Numpad5', 'Clear', { ctrlKey: true })), { unknown: true });
+  assert.equal(parseHotkey('Ctrl+num7'), 'Ctrl+num7');
+  assert.equal(parseHotkey('ctrl+NUM0'), 'Ctrl+num0');
+  assert.equal(parseHotkey('Alt+NumAdd'), 'Alt+numadd');
+  assert.equal(parseHotkey('Ctrl+num10'), null);
+  for (let d = 0; d <= 9; d++) {
+    const { accel } = accelFromEvent(keyEvent('Numpad' + d, String(d), { ctrlKey: true, altKey: true }));
+    assert.equal(parseHotkey(accel), accel);
+  }
+});
+
+// The shortcut field as the Settings view drives it: recorderProps is every
+// event prop of the element, so these are the handlers React calls.
+function field(rec) {
+  const log = [];
+  const props = recorderProps(rec, { start: () => log.push('start'), stop: () => log.push('stop'), save: a => log.push('save:' + a), fail: m => log.push('fail:' + m) });
+  const press = (code, key, mods = {}) => {
+    const e = keyEvent(code, key, { repeat: false, prevented: false, stopped: false, ...mods });
+    e.preventDefault = () => { e.prevented = true; };
+    e.stopPropagation = () => { e.stopped = true; };
+    props.onKeyDown(e);
+    return e;
+  };
+  return { props, log, press };
+}
+
+test('shortcut field, idle: click, Enter or Space starts recording; other keys pass through', () => {
+  let f = field(false);
+  f.props.onClick();
+  assert.deepEqual(f.log, ['start']);
+  for (const [code, key] of [['Enter', 'Enter'], ['Space', ' ']]) {
+    f = field(false);
+    const e = f.press(code, key);
+    assert.deepEqual(f.log, ['start']);
+    assert.ok(e.prevented);
+  }
+  f = field(false);
+  f.press('Enter', 'Enter', { repeat: true });
+  assert.deepEqual(f.log, []);
+  const e = f.press('KeyM', 'm');
+  assert.deepEqual(f.log, []);
+  assert.equal(e.prevented, false); // the app's own [m] still works on an idle field
+  assert.equal(e.stopped, false);
+  assert.equal(f.props.tabIndex, 0);
+});
+
+test('shortcut field, recording: the pressed combination is saved and never reaches the page shortcuts', () => {
+  let f = field(true);
+  // modifiers alone: keep waiting, but already swallowed
+  let e = f.press('ControlLeft', 'Control', { ctrlKey: true });
+  assert.deepEqual(f.log, []);
+  assert.ok(e.prevented && e.stopped);
+  e = f.press('KeyM', 'm', { ctrlKey: true, altKey: true });
+  assert.deepEqual(f.log, ['stop', 'save:Ctrl+Alt+M']);
+  assert.ok(e.prevented && e.stopped);
+  // keys the page binds (m, t, 1, 2), bare or with Shift: swallowed, sent to main (which refuses them)
+  for (const [code, key, mods, accel] of [['KeyM', 'm', {}, 'M'], ['KeyT', 'T', { shiftKey: true }, 'Shift+T'], ['Digit1', '1', {}, '1'], ['Digit2', '@', { shiftKey: true }, 'Shift+2']]) {
+    f = field(true);
+    e = f.press(code, key, mods);
+    assert.ok(e.prevented && e.stopped, accel);
+    assert.deepEqual(f.log, ['stop', 'save:' + accel]);
+    assert.equal(parseHotkey(accel), null);
+  }
+  // a held key repeating is not a second combination
+  f = field(true);
+  e = f.press('Enter', 'Enter', { repeat: true });
+  assert.deepEqual(f.log, []);
+  assert.ok(e.prevented && e.stopped);
+});
+
+test('shortcut field, recording: Esc cancels, Backspace / Delete clears, Tab leaves, unknown keys say so', () => {
+  let f = field(true);
+  let e = f.press('Escape', 'Escape');
+  assert.deepEqual(f.log, ['stop']);
+  assert.ok(e.prevented && e.stopped); // not the page's Esc
+  for (const code of ['Backspace', 'Delete']) {
+    f = field(true);
+    f.press(code, code);
+    assert.deepEqual(f.log, ['stop', 'save:']);
+  }
+  f = field(true);
+  f.press('Delete', 'Delete', { ctrlKey: true, altKey: true });
+  assert.deepEqual(f.log, ['stop', 'save:Ctrl+Alt+Delete']);
+  for (const mods of [{}, { shiftKey: true }]) {
+    f = field(true);
+    e = f.press('Tab', 'Tab', mods);
+    assert.deepEqual(f.log, ['stop']);
+    assert.equal(e.prevented, false); // focus moves on
+  }
+  f = field(true);
+  f.press('MediaPlayPause', 'MediaPlayPause', { ctrlKey: true });
+  assert.equal(f.log[0], 'stop');
+  assert.match(f.log[1], /^fail:That key cannot be used/);
+  f = field(true);
+  f.props.onBlur();
+  assert.deepEqual(f.log, ['stop']);
+});
+
+test('recordKey sorts a keydown', () => {
+  assert.deepEqual(recordKey(keyEvent('ShiftLeft', 'Shift', { shiftKey: true })), { wait: true });
+  assert.deepEqual(recordKey(keyEvent('KeyA', 'a', { ctrlKey: true, repeat: true })), { wait: true });
+  assert.deepEqual(recordKey(keyEvent('Escape', 'Escape')), { cancel: true });
+  assert.deepEqual(recordKey(keyEvent('Escape', 'Escape', { ctrlKey: true, shiftKey: true })), { accel: 'Ctrl+Shift+Escape' });
+  assert.deepEqual(recordKey(keyEvent('Tab', 'Tab', { ctrlKey: true })), { accel: 'Ctrl+Tab' });
+  assert.deepEqual(recordKey(keyEvent('Numpad3', '3', { ctrlKey: true })), { accel: 'Ctrl+num3' });
+});
+
+// The bug of the previous round: a second onKeyDown (from pressable()) on the
+// field's element replaced the recorder. The element may take its handlers
+// from recorderProps only, and the page shortcuts must skip handled keys.
+test('Settings: the shortcut field element has the recorder as its only key handler', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/renderer/app.jsx'), 'utf8');
+  const start = src.indexOf('function HotkeyField(');
+  assert.ok(start > 0);
+  const body = src.slice(start, src.indexOf('\nfunction ', start + 10));
+  assert.match(body, /recorderProps\(rec,/);
+  const el = /<span className="opt chip"[^>]*>/.exec(body);
+  assert.ok(el, 'the field element');
+  assert.ok(el[0].includes('{...field}'));
+  assert.doesNotMatch(el[0], /pressable|onKeyDown|onClick|onBlur/);
+  assert.ok(body.includes('window.tm.setHotkey(name, v)'));
+  assert.ok(body.includes('role="alert"'));
+  // the window-level one-key shortcuts ignore a key a control already handled
+  assert.match(src, /const onKey = e => \{\s*if \(e\.defaultPrevented\) return;/);
+  // both fields are in Settings
+  assert.ok(src.includes('<HotkeyField name="hotkeyWindow"'));
+  assert.ok(src.includes('<HotkeyField name="hotkeyMini"'));
 });

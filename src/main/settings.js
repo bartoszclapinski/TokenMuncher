@@ -32,10 +32,13 @@ const BOOL_KEYS = ['notifications', 'forecastNotify', 'weeklySummary', 'startHid
 const HOTKEY_KEYS = ['hotkeyWindow', 'hotkeyMini'];
 const HOTKEY_MODS = { ctrl: 'Ctrl', control: 'Ctrl', commandorcontrol: 'CommandOrControl', cmdorctrl: 'CommandOrControl', alt: 'Alt', option: 'Alt', shift: 'Shift', super: 'Super', meta: 'Super', cmd: 'Super', command: 'Super', win: 'Super' };
 const HOTKEY_NAMED = ['Space', 'Tab', 'Enter', 'Return', 'Backspace', 'Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown', 'Up', 'Down', 'Left', 'Right', 'Plus', 'Escape'];
-const isHotkeyKey = k => /^[A-Za-z0-9]$/.test(k) || /^F([1-9]|1\d|2[0-4])$/i.test(k) || HOTKEY_NAMED.some(n => n.toLowerCase() === k.toLowerCase()) || /^[-=;,./`'[\]\\]$/.test(k);
+// numeric keypad keys, as Electron names them (written in lower case)
+const HOTKEY_NUMPAD = ['num0', 'num1', 'num2', 'num3', 'num4', 'num5', 'num6', 'num7', 'num8', 'num9', 'numdec', 'numadd', 'numsub', 'nummult', 'numdiv'];
+const isHotkeyKey = k => /^[A-Za-z0-9]$/.test(k) || /^F([1-9]|1\d|2[0-4])$/i.test(k) || HOTKEY_NAMED.some(n => n.toLowerCase() === k.toLowerCase()) || HOTKEY_NUMPAD.includes(k.toLowerCase()) || /^[-=;,./`'[\]\\]$/.test(k);
 // An accelerator checked and written canonically (modifiers, then one key),
-// or null when it is not usable. A global shortcut needs a modifier, or it
-// would swallow an ordinary key in every app.
+// or null when it is not usable. A global shortcut needs Ctrl, Alt or Win:
+// a bare key, or one with Shift alone (Shift+T is a capital T, Shift+Space a
+// space), would swallow ordinary typing in every app.
 function parseHotkey(v) {
   if (typeof v !== 'string' || !v || v.length > 40) return null;
   const parts = v.split('+').map(p => p.trim());
@@ -48,13 +51,14 @@ function parseHotkey(v) {
     if (!m || mods.includes(m)) return null;
     mods.push(m);
   }
-  if (!mods.length) return null;
+  if (!mods.some(m => m !== 'Shift')) return null;
   // CommandOrControl is Ctrl on Windows / Linux and Cmd (Super) on macOS, so
   // next to either of those it names the same modifier twice
   if (mods.includes('CommandOrControl') && (mods.includes('Ctrl') || mods.includes('Super'))) return null;
   const order = ['CommandOrControl', 'Ctrl', 'Alt', 'Shift', 'Super'];
   mods.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  const k = key.length === 1 ? key.toUpperCase() : HOTKEY_NAMED.find(n => n.toLowerCase() === key.toLowerCase()) || key.toUpperCase();
+  const lower = key.toLowerCase();
+  const k = key.length === 1 ? key.toUpperCase() : HOTKEY_NAMED.find(n => n.toLowerCase() === lower) || (HOTKEY_NUMPAD.includes(lower) ? lower : key.toUpperCase());
   return [...mods, k].join('+');
 }
 const hotkey = v => parseHotkey(v) || '';
@@ -68,7 +72,7 @@ const HOTKEY_LABEL = { hotkeyWindow: 'the window', hotkeyMini: 'the mini widget'
 function setHotkey(s, errors, name, value, reg) {
   if (!HOTKEY_KEYS.includes(name) || typeof value !== 'string') return { ok: false, error: 'Unknown shortcut' };
   const accel = value === '' ? '' : parseHotkey(value);
-  if (accel === null) return { ok: false, error: 'Not a valid shortcut: use at least one modifier (Ctrl, Alt, Shift, Win) and one key' };
+  if (accel === null) return { ok: false, error: 'Not a valid shortcut: use Ctrl, Alt or Win (Shift alone is not enough) and one key' };
   const other = HOTKEY_KEYS.find(k => k !== name);
   if (accel && s[other] === accel) return { ok: false, error: `${accel} is already the shortcut for ${HOTKEY_LABEL[other]}` };
   const old = s[name];

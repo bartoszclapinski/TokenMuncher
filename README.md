@@ -206,7 +206,7 @@ A small always-on-top window with the critter, the burn rate, the four most-used
 | `u` | install the update (found or already downloaded) |
 | `Esc` | leave layout editing, or close the session details |
 
-Two optional global shortcuts work from any app: one shows / hides the window, one shows / hides the mini widget. Both are off by default; set them in Settings → general (click the field, press the combination; it needs at least one modifier). A combination that is invalid or already used by another app is refused with a message and not saved.
+Two optional global shortcuts work from any app: one shows / hides the window, one shows / hides the mini widget. Both are off by default; set them in Settings → general (click the field, press the combination; it needs Ctrl, Alt or Win, Shift alone is not enough; Esc cancels, Backspace clears). A combination that is invalid or already used by another app is refused with a message and not saved.
 
 ---
 
