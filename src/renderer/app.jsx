@@ -1267,6 +1267,42 @@ function SkinGroups({ label, only, picked, mascot, onPick }) {
   );
 }
 
+// Records a global shortcut: click, press the combination (Esc cancels,
+// Backspace / Delete clears). The main process validates and registers it.
+function HotkeyField({ name, label, value, startupError }) {
+  const [rec, setRec] = useState(false);
+  const [err, setErr] = useState('');
+  const save = async v => {
+    const r = await window.tm.setHotkey(name, v);
+    setErr(r && !r.ok ? r.error : '');
+  };
+  const onKeyDown = e => {
+    if (!rec) return;
+    e.preventDefault();
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return; // wait for the real key
+    setRec(false);
+    if (e.key === 'Escape') return;
+    if (e.key === 'Backspace' || e.key === 'Delete') { save(''); return; }
+    const k = e.key === ' ' ? 'Space' : e.key === '+' ? 'Plus' : e.key.startsWith('Arrow') ? e.key.slice(5) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean);
+    save([...mods, k].join('+'));
+  };
+  const shown = err || startupError;
+  return (
+    <div>
+      <div className="opt-line">
+        <M>{label}</M>
+        <span className="opt chip" role="button" tabIndex={0} aria-label={label + ' shortcut'} onKeyDown={onKeyDown} onBlur={() => setRec(false)}
+          {...pressable(() => setRec(true))}>
+          {rec ? 'press a combination…' : value || 'off'}
+        </span>
+        {value && !rec && <span className="opt link" role="button" {...pressable(() => save(''))}>[ clear ]</span>}
+      </div>
+      {shown && <div role="alert" style={{ color: C.danger }}>{shown}</div>}
+    </div>
+  );
+}
+
 function Settings({ s, prec, setPrec, lupa, toggleLupa, onEditLayout }) {
   if (!s) return <M>loading settings…</M>;
   const set = (name, value) => window.tm.setSetting(name, value);
@@ -1286,6 +1322,8 @@ function Settings({ s, prec, setPrec, lupa, toggleLupa, onEditLayout }) {
           <Opt on={s.startHidden} label="start in the tray" hint="also when opened by hand" onClick={() => set('startHidden', !s.startHidden)} />
           <Opt on={s.onTop} label="window always on top" hint="[t]" onClick={() => set('onTop', !s.onTop)} />
           <Opt on={s.mini} label="mini widget" hint="[m]" onClick={() => set('mini', !s.mini)} />
+          <HotkeyField name="hotkeyWindow" label="show / hide window" value={s.hotkeyWindow} startupError={s.hotkeyErrors && s.hotkeyErrors.hotkeyWindow} />
+          <HotkeyField name="hotkeyMini" label="show / hide mini widget" value={s.hotkeyMini} startupError={s.hotkeyErrors && s.hotkeyErrors.hotkeyMini} />
         </Panel>
         <Panel title="notifications" gap={6} style={{ flex: '1 1 380px', minWidth: 0 }}>
           <Opt on={s.notifications} label="notifications" onClick={() => set('notifications', !s.notifications)} />

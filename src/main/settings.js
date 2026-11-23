@@ -19,12 +19,42 @@ const DEFAULTS = {
   themeMode: 'fixed',          // 'fixed' (theme) or 'auto' (follow Windows: themeDark / themeLight)
   themeDark: DEFAULT_THEME,    // auto mode, Windows dark: a dark skin
   themeLight: 'paper',         // auto mode, Windows light: a light skin
+  hotkeyWindow: '',            // global shortcut that shows / hides the window ('' = off)
+  hotkeyMini: '',              // global shortcut that shows / hides the mini widget ('' = off)
   mascot: 'auto',              // the mascot (shared/critter.js), or 'auto' = the skin's own
   sources: Object.fromEntries(SOURCE_IDS.map(id => [id, true]))
 };
 
 // The on/off settings the panel can switch (each a key of DEFAULTS).
 const BOOL_KEYS = ['notifications', 'forecastNotify', 'weeklySummary', 'startHidden', 'countCacheReads', 'checkUpdates', 'downloadUpdates'];
+
+// ── global shortcuts: Electron accelerators such as "Ctrl+Shift+T" ──
+const HOTKEY_KEYS = ['hotkeyWindow', 'hotkeyMini'];
+const HOTKEY_MODS = { ctrl: 'Ctrl', control: 'Ctrl', commandorcontrol: 'CommandOrControl', cmdorctrl: 'CommandOrControl', alt: 'Alt', option: 'Alt', shift: 'Shift', super: 'Super', meta: 'Super', cmd: 'Super', command: 'Super', win: 'Super' };
+const HOTKEY_NAMED = ['Space', 'Tab', 'Enter', 'Return', 'Backspace', 'Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown', 'Up', 'Down', 'Left', 'Right', 'Plus', 'Escape'];
+const isHotkeyKey = k => /^[A-Za-z0-9]$/.test(k) || /^F([1-9]|1\d|2[0-4])$/i.test(k) || HOTKEY_NAMED.some(n => n.toLowerCase() === k.toLowerCase()) || /^[-=;,./`'[\]\\]$/.test(k);
+// An accelerator checked and written canonically (modifiers, then one key),
+// or null when it is not usable. A global shortcut needs a modifier, or it
+// would swallow an ordinary key in every app.
+function parseHotkey(v) {
+  if (typeof v !== 'string' || !v || v.length > 40) return null;
+  const parts = v.split('+').map(p => p.trim());
+  if (parts.length > 2 && parts[parts.length - 1] === '' && parts[parts.length - 2] === '') { parts.pop(); parts[parts.length - 1] = '+'; }
+  const key = parts.pop();
+  if (!key || !(isHotkeyKey(key) || key === '+')) return null;
+  const mods = [];
+  for (const p of parts) {
+    const m = HOTKEY_MODS[p.toLowerCase()];
+    if (!m || mods.includes(m)) return null;
+    mods.push(m);
+  }
+  if (!mods.length) return null;
+  const order = ['CommandOrControl', 'Ctrl', 'Alt', 'Shift', 'Super'];
+  mods.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const k = key.length === 1 ? key.toUpperCase() : HOTKEY_NAMED.find(n => n.toLowerCase() === key.toLowerCase()) || key.toUpperCase();
+  return [...mods, k].join('+');
+}
+const hotkey = v => parseHotkey(v) || '';
 
 const bool = (v, d) => (typeof v === 'boolean' ? v : d);
 const THEME_MODES = ['fixed', 'auto'];
@@ -45,6 +75,7 @@ function normalize(raw) {
   const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
   for (const k of BOOL_KEYS) s[k] = bool(s[k], DEFAULTS[k]);
   s.thresholds = thresholds(s.thresholds, DEFAULTS.thresholds);
+  for (const k of HOTKEY_KEYS) s[k] = hotkey(s[k]);
   if (!THEME_IDS.includes(s.theme)) s.theme = DEFAULTS.theme;
   if (!MASCOT_CHOICES.includes(s.mascot)) s.mascot = DEFAULTS.mascot;
   if (!THEME_MODES.includes(s.themeMode)) s.themeMode = DEFAULTS.themeMode;
@@ -72,10 +103,11 @@ function setLayout(s, view, value) {
   else s.layout[view] = l;
 }
 
-const editable = s => JSON.stringify([BOOL_KEYS.map(k => s[k]), s.thresholds, s.sources, s.layout, s.theme, s.mascot, s.themeMode, s.themeDark, s.themeLight]);
+const editable = s => JSON.stringify([BOOL_KEYS.map(k => s[k]), s.thresholds, s.sources, s.layout, s.theme, s.mascot, HOTKEY_KEYS.map(k => s[k]), s.themeMode, s.themeDark, s.themeLight]);
 function applyChange(s, name, value) {
   const before = editable(s);
   if (BOOL_KEYS.includes(name) && typeof value === 'boolean') s[name] = value;
+  else if (HOTKEY_KEYS.includes(name)) { if (value === '' || parseHotkey(value)) s[name] = hotkey(value); }
   else if (name === 'thresholds') s.thresholds = thresholds(value, s.thresholds);
   else if (name === 'theme') { if (THEME_IDS.includes(value)) s.theme = value; }
   else if (name === 'mascot') { if (MASCOT_CHOICES.includes(value)) s.mascot = value; }
@@ -95,4 +127,4 @@ function applyChange(s, name, value) {
   return editable(s) !== before;
 }
 
-module.exports = { DEFAULTS, BOOL_KEYS, SOURCE_IDS, THRESHOLD_CHOICES, normalize, applyChange, activeTheme };
+module.exports = { DEFAULTS, BOOL_KEYS, SOURCE_IDS, THRESHOLD_CHOICES, HOTKEY_KEYS, parseHotkey, normalize, applyChange, activeTheme };

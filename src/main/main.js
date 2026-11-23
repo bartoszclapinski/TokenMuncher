@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Notification, shell, dialog, clipboard, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Notification, shell, dialog, clipboard, nativeTheme, globalShortcut } = require('electron');
 const os = require('os');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -18,7 +18,7 @@ const { usageRows, formatUsage } = require('./usage-export');
 const { LimitHistory } = require('./limit-history');
 const { WeekSummaries, weeksDue, summarize, weekNews, weeklyLimit, NEWS_MS, SAME_MS } = require('./week-summary');
 const install = require('./install');
-const { normalize, applyChange, THRESHOLD_CHOICES, activeTheme } = require('./settings');
+const { normalize, applyChange, THRESHOLD_CHOICES, activeTheme, HOTKEY_KEYS, parseHotkey } = require('./settings');
 const { Updater } = require('./update');
 const { themeOf, lookOf } = require('../shared/themes');
 const { buildReport } = require('./diagnostics');
@@ -438,9 +438,50 @@ function sendSettings() {
   const key = JSON.stringify(look());
   if (mini && mini.isVisible() && miniLook !== key) { miniLook = key; mini.send('settings', view); }
 }
+// ── global shortcuts (settings hotkeyWindow / hotkeyMini; '' = off) ──
+const hotkeyAction = { hotkeyWindow: () => toggleWindow(), hotkeyMini: () => { if (mini) mini.toggle(); } };
+const hotkeyErrors = {}; // name -> why a stored shortcut is not active (e.g. taken by another app)
+const hotkeyLabel = { hotkeyWindow: 'the window', hotkeyMini: 'the mini widget' };
+function tryRegister(accel, name) {
+  try { return globalShortcut.register(accel, hotkeyAction[name]); } catch { return false; }
+}
+// (Re)register every stored shortcut from scratch; remembers which failed.
+function registerHotkeys() {
+  globalShortcut.unregisterAll();
+  for (const name of HOTKEY_KEYS) {
+    delete hotkeyErrors[name];
+    const accel = settings[name];
+    if (accel && !tryRegister(accel, name)) hotkeyErrors[name] = `${accel} is already used by another app`;
+  }
+}
+// One shortcut from the settings panel: validated and registered first, saved
+// only when both work. Returns { ok, error }.
+function setHotkey(name, value) {
+  if (!HOTKEY_KEYS.includes(name) || typeof value !== 'string') return { ok: false, error: 'Unknown shortcut' };
+  const accel = value === '' ? '' : parseHotkey(value);
+  if (accel === null) return { ok: false, error: 'Not a valid shortcut: use at least one modifier (Ctrl, Alt, Shift, Win) and one key' };
+  const other = HOTKEY_KEYS.find(k => k !== name);
+  if (accel && settings[other] === accel) return { ok: false, error: `${accel} is already the shortcut for ${hotkeyLabel[other]}` };
+  const old = settings[name];
+  if (accel !== old) {
+    if (old) globalShortcut.unregister(old);
+    if (accel && !tryRegister(accel, name)) {
+      if (old && !hotkeyErrors[name]) tryRegister(old, name); // keep the working one
+      return { ok: false, error: `${accel} could not be registered: another app is probably using it` };
+    }
+    settings[name] = accel;
+    saveSettings();
+  }
+  delete hotkeyErrors[name];
+  optionsChanged();
+  return { ok: true };
+}
+ipcMain.handle('settings:set-hotkey', (_e, name, value) => setHotkey(name, value));
+
 // What the settings panel shows.
 function settingsView() {
   return {
+    hotkeyWindow: settings.hotkeyWindow, hotkeyMini: settings.hotkeyMini, hotkeyErrors: { ...hotkeyErrors },
     autostart: getOption('autostart'), onTop: getOption('onTop'), mini: getOption('mini'), startHidden: settings.startHidden, countCacheReads: settings.countCacheReads, layout: settings.layout, mascot: settings.mascot,
     // theme: the skin shown (what the windows draw with); the picks behind it
     theme: shownTheme(), themeFixed: settings.theme, themeMode: settings.themeMode, themeDark: settings.themeDark, themeLight: settings.themeLight, systemDark: nativeTheme.shouldUseDarkColors,
@@ -567,7 +608,8 @@ ipcMain.on('update:cancel', () => updater && updater.cancel());
 ipcMain.on('update:page', () => { const u = updater && updater.state().page; if (isReleasePage(u)) shell.openExternal(u); });
 
 app.on('second-instance', (_e, _argv, _cwd, data) => install.onSecondInstance(data, showWindow));
-app.on('before-quit', () => { quitting = true; rememberBounds(); if (mini) mini.destroy(); if (ready && !DEMO) usageCache.saveSync(); limitHistory.flushSync(); });
+app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('before-quit', () => { quitting = true; globalShortcut.unregisterAll(); rememberBounds(); if (mini) mini.destroy(); if (ready && !DEMO) usageCache.saveSync(); limitHistory.flushSync(); });
 if (DEMO) app.on('quit', () => { try { fs.rmSync(DEMO_DIR, { recursive: true, force: true }); } catch { /* still in use */ } });
 app.on('window-all-closed', () => { if (quitting || SHOT) app.quit(); });
 
@@ -600,6 +642,7 @@ app.whenReady().then(() => {
   });
   if (SHOT) settings.mini.on = !!process.env.TM_MINI; // screenshots don't depend on saved state
   mini.init();
+  if (!SHOT && !DEMO) registerHotkeys();
   if (!SHOT) {
     tray = new TrayIcon({
       toggleWindow,
