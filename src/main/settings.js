@@ -64,10 +64,24 @@ function parseHotkey(v) {
 const hotkey = v => parseHotkey(v) || '';
 const HOTKEY_LABEL = { hotkeyWindow: 'the window', hotkeyMini: 'the mini widget' };
 
+// Why registering `accel` failed, as the user is told: 'taken' (register()
+// returned false: Electron does that when another app holds the combination,
+// though it cannot say so for sure) or 'refused' (register() threw: Electron
+// did not accept the accelerator at all).
+function hotkeyFailure(accel, why) {
+  return why === 'refused'
+    ? `${accel} could not be registered: Electron does not accept this combination`
+    : `${accel} could not be registered: another app is probably using it`;
+}
+// reg.register(accel, name) -> null when it worked, else 'taken' / 'refused'.
+function tryRegister(reg, accel, name) {
+  try { return reg.register(accel, name) ? null : 'taken'; } catch { return 'refused'; }
+}
+
 // One shortcut from the settings panel: validated and registered first, put
 // in settings `s` only when both work. `errors` holds name -> why a stored
 // shortcut is not registered (e.g. it failed at startup); `reg` is
-// { register(accel, name) -> bool, unregister(accel) }.
+// { register(accel, name) -> bool (may throw, as Electron's does), unregister(accel) }.
 // Returns { ok, error, changed } (changed: s was modified and needs saving).
 function setHotkey(s, errors, name, value, reg) {
   if (!HOTKEY_KEYS.includes(name) || typeof value !== 'string') return { ok: false, error: 'Unknown shortcut' };
@@ -82,9 +96,10 @@ function setHotkey(s, errors, name, value, reg) {
   // failed (e.g. at startup) is tried again, and still refused if taken.
   if (!(accel === old && (!accel || oldActive))) {
     if (oldActive) reg.unregister(old);
-    if (accel && !reg.register(accel, name)) {
-      if (oldActive) reg.register(old, name); // keep the working one
-      return { ok: false, error: `${accel} could not be registered: another app is probably using it` };
+    const failed = accel && tryRegister(reg, accel, name);
+    if (failed) {
+      if (oldActive) tryRegister(reg, old, name); // keep the working one
+      return { ok: false, error: hotkeyFailure(accel, failed) };
     }
     if (accel !== old) { s[name] = accel; changed = true; }
   }
@@ -164,4 +179,4 @@ function applyChange(s, name, value) {
   return editable(s) !== before;
 }
 
-module.exports = { DEFAULTS, BOOL_KEYS, SOURCE_IDS, THRESHOLD_CHOICES, HOTKEY_KEYS, parseHotkey, setHotkey, normalize, applyChange, activeTheme };
+module.exports = { DEFAULTS, BOOL_KEYS, SOURCE_IDS, THRESHOLD_CHOICES, HOTKEY_KEYS, parseHotkey, setHotkey, tryRegister, hotkeyFailure, normalize, applyChange, activeTheme };

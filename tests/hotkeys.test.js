@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseHotkey, setHotkey, normalize, applyChange } = require('../src/main/settings');
-const { accelFromEvent, recordKey, recorderProps } = require('../src/shared/hotkey');
+const { accelFromEvent, recordKey, recorderProps, hotkeyField } = require('../src/shared/hotkey');
 
 test('global shortcuts are off by default', () => {
   const s = normalize({});
@@ -248,24 +248,190 @@ test('recordKey sorts a keydown', () => {
   assert.deepEqual(recordKey(keyEvent('Numpad3', '3', { ctrlKey: true })), { accel: 'Ctrl+num3' });
 });
 
-// The bug of the previous round: a second onKeyDown (from pressable()) on the
-// field's element replaced the recorder. The element may take its handlers
-// from recorderProps only, and the page shortcuts must skip handled keys.
-test('Settings: the shortcut field element has the recorder as its only key handler', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/renderer/app.jsx'), 'utf8');
-  const start = src.indexOf('function HotkeyField(');
-  assert.ok(start > 0);
-  const body = src.slice(start, src.indexOf('\nfunction ', start + 10));
-  assert.match(body, /recorderProps\(rec,/);
-  const el = /<span className="opt chip"[^>]*>/.exec(body);
-  assert.ok(el, 'the field element');
-  assert.ok(el[0].includes('{...field}'));
-  assert.doesNotMatch(el[0], /pressable|onKeyDown|onClick|onBlur/);
-  assert.ok(body.includes('window.tm.setHotkey(name, v)'));
-  assert.ok(body.includes('role="alert"'));
-  // the window-level one-key shortcuts ignore a key a control already handled
-  assert.match(src, /const onKey = e => \{\s*if \(e\.defaultPrevented\) return;/);
-  // both fields are in Settings
-  assert.ok(src.includes('<HotkeyField name="hotkeyWindow"'));
-  assert.ok(src.includes('<HotkeyField name="hotkeyMini"'));
+// ── main-process manager + the Settings field, end to end ──
+const { Hotkeys } = require('../src/main/hotkeys');
+
+// A fake Electron globalShortcut. `taken`: held by another app (register
+// returns false); `refused`: accelerators Electron rejects (register throws).
+// press(accel) is the OS: a registered combination fires its action and never
+// reaches the focused window.
+function fakeGlobalShortcut({ taken = [], refused = [] } = {}) {
+  const active = new Map();
+  return {
+    active,
+    register(a, fn) {
+      if (refused.includes(a)) throw new Error('conversion failure');
+      if (taken.includes(a) || active.has(a)) return false;
+      active.set(a, fn);
+      return true;
+    },
+    unregister: a => { active.delete(a); },
+    unregisterAll: () => active.clear(),
+    press: a => { const fn = active.get(a); if (fn) fn(); return !!fn; },
+  };
+}
+
+function setup(stored = {}, opts = {}) {
+  const fired = [];
+  const s = normalize(stored);
+  const gs = fakeGlobalShortcut(opts);
+  const hk = new Hotkeys({
+    shortcut: gs,
+    actions: { hotkeyWindow: () => fired.push('window'), hotkeyMini: () => fired.push('mini') },
+    settings: () => s,
+    enabled: opts.enabled !== false,
+  });
+  hk.registerAll();
+  return { s, gs, hk, fired };
+}
+
+test('Hotkeys registers the stored shortcuts at startup and they fire their actions', () => {
+  const { gs, fired, hk } = setup({ hotkeyWindow: 'Ctrl+Alt+W', hotkeyMini: 'Ctrl+Alt+M' });
+  assert.deepEqual([...gs.active.keys()].sort(), ['Ctrl+Alt+M', 'Ctrl+Alt+W']);
+  gs.press('Ctrl+Alt+W');
+  gs.press('Ctrl+Alt+M');
+  assert.deepEqual(fired, ['window', 'mini']);
+  assert.deepEqual(hk.errors, {});
+  hk.unregisterAll();
+  assert.equal(gs.active.size, 0);
+});
+
+test('Hotkeys tells a taken combination from one Electron refuses', () => {
+  const { hk } = setup({ hotkeyWindow: 'Ctrl+Alt+T', hotkeyMini: 'Ctrl+Alt+M' }, { taken: ['Ctrl+Alt+T'], refused: ['Ctrl+Alt+M', 'Ctrl+Alt+R'] });
+  assert.match(hk.errors.hotkeyWindow, /Ctrl\+Alt\+T could not be registered: another app is probably using it/);
+  assert.match(hk.errors.hotkeyMini, /Ctrl\+Alt\+M could not be registered: Electron does not accept/);
+  // the same from the settings panel
+  const r = hk.set('hotkeyWindow', 'Ctrl+Alt+R');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Electron does not accept/);
+  assert.doesNotMatch(r.error, /another app/);
+});
+
+test('Hotkeys in a demo instance registers nothing, at startup or from the settings panel', () => {
+  const { s, gs, hk } = setup({ hotkeyWindow: 'Ctrl+Alt+W' }, { enabled: false });
+  assert.equal(gs.active.size, 0);
+  const r = hk.set('hotkeyMini', 'Ctrl+Alt+M');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /demo/);
+  assert.equal(s.hotkeyMini, '');
+  hk.pause(); hk.resume();
+  assert.equal(gs.active.size, 0);
+});
+
+test('Hotkeys pause / resume: nothing is registered while a field records', () => {
+  const { gs, hk, fired } = setup({ hotkeyWindow: 'Ctrl+Alt+W' });
+  hk.pause();
+  assert.equal(gs.press('Ctrl+Alt+W'), false);
+  assert.deepEqual(fired, []);
+  hk.resume();
+  assert.equal(gs.press('Ctrl+Alt+W'), true);
+  assert.deepEqual(fired, ['window']);
+  // a save while paused registers again first, so the old shortcut is replaced, not leaked
+  hk.pause();
+  assert.equal(hk.set('hotkeyWindow', 'Ctrl+Alt+X').ok, true);
+  assert.deepEqual([...gs.active.keys()], ['Ctrl+Alt+X']);
+  assert.equal(hk.paused, false);
+});
+
+// The Settings field (shared/hotkey.js hotkeyField) wired to the main process
+// as preload.js does, with the OS in between: what the user sees after each step.
+function settingsField(main, name, label) {
+  const state = { rec: false, err: '' };
+  const api = {
+    setHotkey: async (n, v) => { const r = main.hk.set(n, v); return r.ok ? { ok: true } : { ok: false, error: r.error }; },
+    pauseHotkeys: on => (on ? main.hk.pause() : main.hk.resume()),
+  };
+  const view = () => hotkeyField(state, { name, label, value: main.s[name], startupError: main.hk.errors[name], api, update: p => Object.assign(state, p) });
+  return {
+    view,
+    click: () => view().chip.onClick(),
+    // a key pressed while the window has focus: the OS takes it first
+    async press(code, key, mods = {}) {
+      const e = keyEvent(code, key, { repeat: false, ...mods });
+      e.preventDefault = () => { e.defaultPrevented = true; };
+      e.stopPropagation = () => {};
+      const r = accelFromEvent(e);
+      if (r.accel && main.gs.press(r.accel)) return 'swallowed by a global shortcut';
+      view().chip.onKeyDown(e);
+      await new Promise(setImmediate); // the save round trip
+      return e.defaultPrevented ? 'taken by the field' : 'passed on';
+    },
+  };
+}
+
+test('Settings field: records a combination, saves it, and it works from any app afterwards', async () => {
+  const main = setup();
+  const f = settingsField(main, 'hotkeyWindow', 'show / hide window');
+  assert.equal(f.view().text, 'off');
+  assert.equal(f.view().chip['aria-label'], 'show / hide window shortcut');
+  f.click();
+  assert.equal(f.view().text, 'press a combination…');
+  assert.equal(await f.press('KeyW', 'w', { ctrlKey: true, altKey: true }), 'taken by the field');
+  assert.equal(f.view().text, 'Ctrl+Alt+W');
+  assert.equal(f.view().error, '');
+  assert.equal(main.s.hotkeyWindow, 'Ctrl+Alt+W');
+  main.gs.press('Ctrl+Alt+W');
+  assert.deepEqual(main.fired, ['window']);
+  // [ clear ] turns it off
+  await f.view().clear();
+  assert.equal(f.view().text, 'off');
+  assert.equal(main.gs.active.size, 0);
+});
+
+test('Settings field: re-recording the set combinations reaches the recorder instead of firing them', async () => {
+  const main = setup({ hotkeyWindow: 'Ctrl+Alt+W', hotkeyMini: 'Ctrl+Alt+M' });
+  const win = settingsField(main, 'hotkeyWindow', 'show / hide window');
+  // the other field's combination: refused with a message, nothing toggled, nothing saved
+  win.click();
+  assert.equal(await win.press('KeyM', 'm', { ctrlKey: true, altKey: true }), 'taken by the field');
+  assert.deepEqual(main.fired, []);
+  assert.match(win.view().error, /Ctrl\+Alt\+M is already the shortcut for the mini widget/);
+  assert.equal(win.view().text, 'Ctrl+Alt+W');
+  assert.equal(main.s.hotkeyWindow, 'Ctrl+Alt+W');
+  // the field's own combination: accepted as is, the window is not hidden
+  win.click();
+  assert.equal(win.view().error, '');
+  assert.equal(await win.press('KeyW', 'w', { ctrlKey: true, altKey: true }), 'taken by the field');
+  assert.deepEqual(main.fired, []);
+  assert.equal(win.view().text, 'Ctrl+Alt+W');
+  // recording over: both work again
+  main.gs.press('Ctrl+Alt+W');
+  main.gs.press('Ctrl+Alt+M');
+  assert.deepEqual(main.fired, ['window', 'mini']);
+});
+
+test('Settings field: invalid and taken combinations show why and are not saved', async () => {
+  const main = setup({}, { taken: ['Ctrl+Alt+T'] });
+  const f = settingsField(main, 'hotkeyMini', 'show / hide mini widget');
+  for (const [code, key, mods, re] of [
+    ['KeyT', 'T', { shiftKey: true }, /Not a valid shortcut/],
+    ['KeyT', 't', { ctrlKey: true, altKey: true }, /another app is probably using it/],
+    ['MediaPlayPause', 'MediaPlayPause', { ctrlKey: true }, /cannot be used in a shortcut/],
+  ]) {
+    f.click();
+    await f.press(code, key, mods);
+    assert.match(f.view().error, re);
+    assert.equal(f.view().text, 'off');
+    assert.equal(main.s.hotkeyMini, '');
+  }
+  assert.equal(main.gs.active.size, 0);
+  assert.equal(main.hk.paused, false);
+});
+
+test('Settings field: an idle field lets the page keys through; leaving a recording resumes the shortcuts', async () => {
+  const main = setup({ hotkeyWindow: 'Ctrl+Alt+W' });
+  const f = settingsField(main, 'hotkeyWindow', 'show / hide window');
+  assert.equal(await f.press('KeyM', 'm'), 'passed on'); // the app's own [m]
+  f.click();
+  assert.equal(main.hk.paused, true);
+  assert.equal(await f.press('Escape', 'Escape'), 'taken by the field');
+  assert.equal(main.hk.paused, false);
+  assert.equal(f.view().text, 'Ctrl+Alt+W');
+  f.click();
+  f.view().chip.onBlur();
+  assert.equal(main.hk.paused, false);
+  assert.equal(main.gs.press('Ctrl+Alt+W'), true);
+  // a startup failure is shown next to the field
+  const taken = setup({ hotkeyMini: 'Ctrl+Alt+T' }, { taken: ['Ctrl+Alt+T'] });
+  assert.match(settingsField(taken, 'hotkeyMini', 'mini').view().error, /another app is probably using it/);
 });

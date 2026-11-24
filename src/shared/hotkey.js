@@ -90,4 +90,31 @@ function recorderProps(rec, on) {
   };
 }
 
-module.exports = { keyFromCode, accelFromEvent, recordKey, recorderProps };
+// A shortcut field in Settings, without React: its state is { rec, err }
+// (recording now, the last refusal), and this says what the element shows
+// and does. While it records, the set global shortcuts are paused, so the
+// combination pressed reaches the recorder even when it is already set (the
+// field's own, or the other field's: then main refuses it with a message).
+// opts: { name, label, value (stored accelerator or ''), startupError,
+//   api: { setHotkey(name, accel) -> Promise<{ ok, error }>, pauseHotkeys(on) },
+//   update(patch) — merges into the state }
+// -> { chip (props of the field element), text, clear (fn or null), error }
+function hotkeyField(state, { name, label, value, startupError, api, update }) {
+  const on = {
+    start: () => { update({ rec: true, err: '' }); api.pauseHotkeys(true); },
+    stop: () => { update({ rec: false }); api.pauseHotkeys(false); },
+    save: async accel => {
+      const r = await api.setHotkey(name, accel);
+      update({ err: r && !r.ok ? r.error : '' });
+    },
+    fail: err => update({ err }),
+  };
+  return {
+    chip: { role: 'button', 'aria-label': label + ' shortcut', ...recorderProps(state.rec, on) },
+    text: state.rec ? 'press a combination…' : value || 'off',
+    clear: value && !state.rec ? () => on.save('') : null,
+    error: state.err || startupError || '',
+  };
+}
+
+module.exports = { keyFromCode, accelFromEvent, recordKey, recorderProps, hotkeyField };

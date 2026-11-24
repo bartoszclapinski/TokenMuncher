@@ -6,7 +6,7 @@ import { critterRows, W } from '../shared/critter';
 import { THEMES, THEME_IDS, GROUPS, MASCOT_CHOICES, themeOf, mascotOf } from '../shared/themes';
 import { pad, hhmm, when, duration } from '../shared/clock';
 import { downloadText } from '../shared/download';
-import { recorderProps } from '../shared/hotkey';
+import { hotkeyField } from '../shared/hotkey';
 import { fmtTok, change } from '../shared/numbers';
 import { defaults as defaultLayout, normalize as normalizeLayout } from '../shared/layout';
 import { LayoutView } from './layout-view.jsx';
@@ -1269,29 +1269,24 @@ function SkinGroups({ label, only, picked, mascot, onPick }) {
   );
 }
 
-// Records a global shortcut: click (or Enter / Space), press the combination
-// (Esc cancels, Backspace / Delete clears, Tab leaves). The main process validates and registers it.
+// A global shortcut field. What it does (record, pause the set shortcuts
+// meanwhile, save, show why one was refused) is hotkeyField in
+// shared/hotkey.js, tested there; this only draws it.
 function HotkeyField({ name, label, value, startupError }) {
-  const [rec, setRec] = useState(false);
-  const [err, setErr] = useState('');
-  const save = async v => {
-    const r = await window.tm.setHotkey(name, v);
-    setErr(r && !r.ok ? r.error : '');
-  };
-  // All the field's handlers come from recorderProps (shared/hotkey.js, unit-tested).
-  // Do not add pressable() or another onKeyDown to the span: it would replace the recorder.
-  const field = recorderProps(rec, { start: () => { setErr(''); setRec(true); }, stop: () => setRec(false), save, fail: setErr });
-  const shown = err || startupError;
+  const [state, setState] = useState({ rec: false, err: '' });
+  const recording = useRef(false);
+  recording.current = state.rec;
+  // left Settings while recording: the set shortcuts must come back
+  useEffect(() => () => { if (recording.current) window.tm.pauseHotkeys(false); }, []);
+  const f = hotkeyField(state, { name, label, value, startupError, api: window.tm, update: p => setState(x => ({ ...x, ...p })) });
   return (
     <div>
       <div className="opt-line">
         <M>{label}</M>
-        <span className="opt chip" role="button" aria-label={label + ' shortcut'} {...field}>
-          {rec ? 'press a combination…' : value || 'off'}
-        </span>
-        {value && !rec && <span className="opt link" role="button" {...pressable(() => save(''))}>[ clear ]</span>}
+        <span className="opt chip" {...f.chip}>{f.text}</span>
+        {f.clear && <span className="opt link" role="button" {...pressable(f.clear)}>[ clear ]</span>}
       </div>
-      {shown && <div role="alert" style={{ color: C.danger }}>{shown}</div>}
+      {f.error && <div role="alert" style={{ color: C.danger }}>{f.error}</div>}
     </div>
   );
 }

@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('tm', {
   exportUsage: (range, format) => ipcRenderer.invoke('history:export', range, format),
   setSetting: (name, value) => ipcRenderer.send('settings:set', name, value),
   setHotkey: (name, value) => ipcRenderer.invoke('settings:set-hotkey', name, value),
+  pauseHotkeys: on => ipcRenderer.send('settings:hotkeys-pause', !!on),
   onSettings: cb => ipcRenderer.on('settings', (_e, s) => cb(s)),
   onGoto: cb => ipcRenderer.on('goto', (_e, view) => cb(view)),
   testNotification: () => ipcRenderer.send('settings:test-notification'),
