@@ -1,7 +1,10 @@
 // Shared in-memory store that every source (Claude Code, Codex, Cursor) writes into.
 // A record is one model response:
-//   { ts, provider, sid, project, app, model, fam, in, out, cr, cw, total, cost, bucket? }
-// cost is the API-list-price equivalent in USD.
+//   { ts, provider, sid, project, app, model, fam, in, out, cr, cw, cw1?, total, cost, bucket? }
+// cw is all cache-write tokens, cw1 the part of them written with a 1-hour TTL
+// (missing = 0). cost is the API-list-price equivalent in USD.
+// A session with `cut: true` had earlier responses that the store does not
+// keep (older than the cutoff): its first kept record is not its first response.
 const DAY = 86400e3;
 const ACTIONS_PER_SESSION = 12; // last actions kept on each session, for its details panel
 
@@ -34,13 +37,21 @@ class Store {
   }
 
   addRecord(key, r) {
-    if (r.ts < this.cutoff || this.seen.has(key)) return false;
+    if (r.ts < this.cutoff) return this.markCut(r.sid);
+    if (this.seen.has(key)) return false;
     this.seen.set(key, r.ts);
     const last = this.records[this.records.length - 1];
     if (last && r.ts < last.ts) this.unsorted = true;
     this.records.push(r);
     this.changes++;
     return true;
+  }
+
+  // Notes that a record of this session was left out as too old. Returns false.
+  markCut(sid) {
+    const s = this.sessions.get(sid);
+    if (s) s.cut = true;
+    return false;
   }
 
   // Returns true when the event is new. With a sid, it is also kept on that
@@ -79,7 +90,7 @@ class Store {
     const c = Math.min(Store.cutoffFor(now), ...Object.values(this.floors));
     if (c > this.cutoff) {
       this.cutoff = c;
-      this.records = this.records.filter(r => r.ts >= c);
+      this.records = this.records.filter(r => r.ts >= c || this.markCut(r.sid));
       for (const m of [this.seen, this.seenEvt]) for (const [k, ts] of m) if (ts < c) m.delete(k);
       for (const [sid, s] of this.sessions) if (s.lastTs < c) this.sessions.delete(sid);
     }
@@ -106,10 +117,10 @@ class Store {
   fromJSON(j) {
     for (const [id, ts] of Object.entries(j.floors || {})) if (typeof ts === 'number') this.setFloor(id, ts);
     const c = this.cutoff;
-    this.records = (j.records || []).filter(r => r.ts >= c).sort((a, b) => a.ts - b.ts);
+    this.sessions = new Map((j.sessions || []).filter(s => s.lastTs >= c).map(s => [s.sid, s]));
+    this.records = (j.records || []).filter(r => r.ts >= c || this.markCut(r.sid)).sort((a, b) => a.ts - b.ts);
     this.unsorted = false;
     this.seen = new Map((j.seen || []).filter(([, ts]) => ts >= c));
-    this.sessions = new Map((j.sessions || []).filter(s => s.lastTs >= c).map(s => [s.sid, s]));
     this.events = (j.events || []).filter(e => e.ts >= c);
     this.seenEvt = new Map((j.seenEvt || []).filter(([, ts]) => ts >= c));
   }

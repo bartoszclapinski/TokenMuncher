@@ -1,6 +1,7 @@
 // Builds the UI snapshot from the shared store and every source's limits.
 const { startOfDay, startOfWeek, startOfMonth, DAY } = require('./store');
 const { displayName, family } = require('./pricing');
+const { addCache, cacheSummary, emptyCache } = require('./cache-stats');
 const { sessionWindows, windowSeries, fixedWindows, monthlyCycles } = require('./history');
 const { hourProfile, habitForecast, MIN_DAYS } = require('../shared/habits');
 const { MONTHLY_KEEP_MS } = require('./limit-history');
@@ -65,6 +66,11 @@ class Aggregator {
     let rateTotal = 0;
     const win5 = now - 5 * HOUR, week = now - 7 * DAY;
     const withCR = this.countCacheReads();
+    // Sessions with responses before the week of the project list: their first
+    // response inside the week is not a cold start.
+    const olderSids = new Set();
+    for (const r of S.records) if (r.ts < week) olderSids.add(r.sid);
+    const startedEarlier = sid => olderSids.has(sid) || !!(S.sessions.get(sid) || {}).cut;
 
     for (const r of S.records) {
       if (hidden.has(r.provider)) continue;
@@ -83,7 +89,8 @@ class Aggregator {
         h.fam[r.fam] = (h.fam[r.fam] || 0) + tok;
       }
       if (ts >= week) {
-        const p = topWeek.get(r.project) || { project: r.project, tokens: 0, cost: 0, byModel: {}, byApp: {} };
+        const p = topWeek.get(r.project) || { project: r.project, tokens: 0, cost: 0, byModel: {}, byApp: {}, cache: emptyCache() };
+        addCache(p.cache, r, startedEarlier(r.sid));
         p.tokens += tok; p.cost += r.cost; p.byModel[r.model] = (p.byModel[r.model] || 0) + r.cost; p.byApp[r.app] = (p.byApp[r.app] || 0) + tok;
         topWeek.set(r.project, p);
       }
@@ -165,7 +172,7 @@ class Aggregator {
       const main = Object.entries(p.byModel).sort((a, b) => b[1] - a[1])[0][0];
       const app = Object.entries(p.byApp).sort((a, b) => b[1] - a[1])[0][0];
       const rec = S.records.find(r => r.model === main);
-      return { project: p.project, app, model: displayName(main), fam: rec ? rec.fam : 'other', tokens: p.tokens, cost: p.cost };
+      return { project: p.project, app, model: displayName(main), fam: rec ? rec.fam : 'other', tokens: p.tokens, cost: p.cost, cache: cacheSummary(p.cache) };
     });
 
     const histDays = hist.map((h, i) => {
@@ -231,8 +238,10 @@ class Aggregator {
     const recs = S.records.filter(r => r.sid === sid);
     const types = { in: 0, out: 0, cr: 0, cw: 0 };
     const models = new Map();
+    const cacheAcc = emptyCache();
     let tokens = 0, cost = 0;
     for (const r of recs) {
+      addCache(cacheAcc, r, !!s.cut); // cut: its first responses are older than the store keeps
       types.in += r.in; types.out += r.out; types.cr += r.cr; types.cw += r.cw;
       tokens += tok(r); cost += r.cost;
       const name = displayName(r.model); // ids that differ only by date or [1m] share a row
@@ -264,6 +273,7 @@ class Aggregator {
     return {
       sid, provider: s.provider, project: s.project, app: s.app, model: displayName(s.model), now,
       start, end, responses: recs.length, types, tokens, cost, countsCacheReads: withCR,
+      cache: cacheSummary(cacheAcc),
       models: [...models.values()].sort((a, b) => b.tokens - a.tokens), series, stepMs, shares,
       ctx: s.ctx, ctxMax: s.ctxMax || 0, lastAction: s.lastAction, events
     };

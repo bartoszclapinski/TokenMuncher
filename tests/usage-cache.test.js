@@ -110,6 +110,8 @@ test('usage cache: corrupt file, other version or missing file mean no cache', (
   fs.writeFileSync(file, '{"version":1,"store":');
   assert.equal(new UsageCache(file, s, []).load(), false, 'corrupt');
   assert.equal(restore({ version: VERSION + 1, store: {}, sources: {} }, s, []), false, 'other version');
+  // version 1 records have no cw1: their 1-hour cache writes would be priced as 5-minute ones
+  assert.equal(restore({ version: 1, store: {}, sources: {} }, s, []), false, 'format before cw1');
   assert.equal(s.records.length, 0, 'store untouched');
 });
 
