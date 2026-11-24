@@ -62,12 +62,21 @@ function recordKey(e) {
 // or Space starts recording). Recording, each keydown is taken here and goes
 // no further: the page's own one-key shortcuts must not fire while the user
 // presses a combination.
-// rec: recording now; on: { start(), stop(), save(accel), fail(message) }.
-function recorderProps(rec, on) {
+//
+// A pressed combination is not saved on its keydown but held until one of its
+// keys is released (or focus leaves): saving registers it system-wide, and
+// Windows repeats a hotkey while its keys stay down, so registering one that
+// is still held would toggle the window or the widget straight away.
+// rec: recording now; held: the combination waiting for its release (from
+// on.hold) or null;
+// on: { start(), stop(), hold({ accel, code, mods }), save(accel), fail(message) }.
+function recorderProps(rec, on, held = null) {
+  const finish = () => { on.stop(); if (held) on.save(held.accel); };
   return {
     tabIndex: 0,
     onClick: () => { if (!rec) on.start(); },
-    onBlur: () => { if (rec) on.stop(); },
+    onBlur: () => { if (rec) finish(); },
+    onKeyUp: e => { if (rec && held && releases(held, e)) finish(); },
     onKeyDown: e => {
       if (!rec) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -81,17 +90,31 @@ function recorderProps(rec, on) {
       e.preventDefault();
       e.stopPropagation();
       if (r.wait) return;
+      if (r.accel) { on.hold({ accel: r.accel, code: e.code, mods: { ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey } }); return; }
       on.stop();
       if (r.cancel) return;
       if (r.clear) on.save('');
-      else if (r.unknown) on.fail('That key cannot be used in a shortcut');
-      else on.save(r.accel);
+      else on.fail('That key cannot be used in a shortcut');
     }
   };
 }
 
-// A shortcut field in Settings, without React: its state is { rec, err }
-// (recording now, the last refusal), and this says what the element shows
+// Does this keyup end the held combination, i.e. is one of its own keys
+// released? (After that the keys still down no longer make it.)
+function releases(held, e) {
+  if (e.code === held.code) return true;
+  const m = held.mods;
+  if (e.key === 'Control') return m.ctrl;
+  if (e.key === 'Alt') return m.alt;
+  if (e.key === 'AltGraph') return m.alt || m.ctrl; // AltGr is Ctrl+Alt on Windows
+  if (e.key === 'Shift') return m.shift;
+  if (e.key === 'Meta' || e.key === 'OS') return m.meta;
+  return false;
+}
+
+// A shortcut field in Settings, without React: its state is { rec, err, held }
+// (recording now, the last refusal, the combination pressed and not yet
+// released: see recorderProps), and this says what the element shows
 // and does. While it records, the set global shortcuts are paused, so the
 // combination pressed reaches the recorder even when it is already set (the
 // field's own, or the other field's: then main refuses it with a message).
@@ -101,8 +124,9 @@ function recorderProps(rec, on) {
 // -> { chip (props of the field element), text, clear (fn or null), error }
 function hotkeyField(state, { name, label, value, startupError, api, update }) {
   const on = {
-    start: () => { update({ rec: true, err: '' }); api.pauseHotkeys(true); },
-    stop: () => { update({ rec: false }); api.pauseHotkeys(false); },
+    start: () => { update({ rec: true, err: '', held: null }); api.pauseHotkeys(true); },
+    stop: () => { update({ rec: false, held: null }); api.pauseHotkeys(false); },
+    hold: held => update({ held }),
     save: async accel => {
       const r = await api.setHotkey(name, accel);
       update({ err: r && !r.ok ? r.error : '' });
@@ -110,8 +134,8 @@ function hotkeyField(state, { name, label, value, startupError, api, update }) {
     fail: err => update({ err }),
   };
   return {
-    chip: { role: 'button', 'aria-label': label + ' shortcut', ...recorderProps(state.rec, on) },
-    text: state.rec ? 'press a combination…' : value || 'off',
+    chip: { role: 'button', 'aria-label': label + ' shortcut', ...recorderProps(state.rec, on, state.held || null) },
+    text: state.rec ? (state.held ? state.held.accel : 'press a combination…') : value || 'off',
     clear: value && !state.rec ? () => on.save('') : null,
     error: state.err || startupError || '',
   };

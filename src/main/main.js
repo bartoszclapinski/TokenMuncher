@@ -448,15 +448,18 @@ const hotkeys = new Hotkeys({
   shortcut: globalShortcut,
   actions: { hotkeyWindow: () => toggleWindow(), hotkeyMini: () => { if (mini) mini.toggle(); } },
   settings: () => settings,
-  enabled: !SHOT && !DEMO
+  enabled: !SHOT && !DEMO,
+  // registered again (a recording ended) or changed, accepted or refused:
+  // the panel gets the shortcuts and why one is not active
+  onChange: () => sendSettings()
 });
 // One shortcut from the settings panel: validated and registered first, saved
-// only when both work. Returns { ok, error }.
+// only when both work. Returns { ok, error }. (hotkeys' onChange sends the
+// panel the result, also when it was refused.)
 function setHotkey(name, value) {
   const r = hotkeys.set(name, value);
   if (!r.ok) return { ok: false, error: r.error };
   if (r.changed) saveSettings();
-  optionsChanged();
   return { ok: true };
 }
 ipcMain.handle('settings:set-hotkey', (_e, name, value) => setHotkey(name, value));
@@ -594,7 +597,7 @@ ipcMain.on('update:page', () => { const u = updater && updater.state().page; if 
 
 app.on('second-instance', (_e, _argv, _cwd, data) => install.onSecondInstance(data, showWindow));
 app.on('will-quit', () => globalShortcut.unregisterAll());
-app.on('before-quit', () => { quitting = true; hotkeys.enabled = false; globalShortcut.unregisterAll(); rememberBounds(); if (mini) mini.destroy(); if (ready && !DEMO) usageCache.saveSync(); limitHistory.flushSync(); });
+app.on('before-quit', () => { quitting = true; hotkeys.stop(); rememberBounds(); if (mini) mini.destroy(); if (ready && !DEMO) usageCache.saveSync(); limitHistory.flushSync(); });
 if (DEMO) app.on('quit', () => { try { fs.rmSync(DEMO_DIR, { recursive: true, force: true }); } catch { /* still in use */ } });
 app.on('window-all-closed', () => { if (quitting || SHOT) app.quit(); });
 

@@ -98,8 +98,12 @@ function setHotkey(s, errors, name, value, reg) {
     if (oldActive) reg.unregister(old);
     const failed = accel && tryRegister(reg, accel, name);
     if (failed) {
-      if (oldActive) tryRegister(reg, old, name); // keep the working one
-      return { ok: false, error: hotkeyFailure(accel, failed) };
+      // keep the working one; when even that fails (another app took it in
+      // between), `errors` says so: the field must not show a shortcut that
+      // silently stopped working
+      const lost = oldActive && tryRegister(reg, old, name);
+      if (lost) errors[name] = hotkeyFailure(old, lost);
+      return { ok: false, error: hotkeyFailure(accel, failed) + (lost ? `. The shortcut set before, ${old}, could not be registered again either and is not active` : '') };
     }
     if (accel !== old) { s[name] = accel; changed = true; }
   }

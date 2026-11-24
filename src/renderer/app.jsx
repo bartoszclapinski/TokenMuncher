@@ -1273,7 +1273,7 @@ function SkinGroups({ label, only, picked, mascot, onPick }) {
 // meanwhile, save, show why one was refused) is hotkeyField in
 // shared/hotkey.js, tested there; this only draws it.
 function HotkeyField({ name, label, value, startupError }) {
-  const [state, setState] = useState({ rec: false, err: '' });
+  const [state, setState] = useState({ rec: false, err: '', held: null });
   const recording = useRef(false);
   recording.current = state.rec;
   // left Settings while recording: the set shortcuts must come back
