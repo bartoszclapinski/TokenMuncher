@@ -6,6 +6,7 @@ import { critterRows, W } from '../shared/critter';
 import { THEMES, THEME_IDS, GROUPS, MASCOT_CHOICES, themeOf, mascotOf } from '../shared/themes';
 import { pad, hhmm, when, duration } from '../shared/clock';
 import { downloadText } from '../shared/download';
+import { hotkeyField } from '../shared/hotkey';
 import { fmtTok, change } from '../shared/numbers';
 import { defaults as defaultLayout, normalize as normalizeLayout } from '../shared/layout';
 import { LayoutView } from './layout-view.jsx';
@@ -261,6 +262,7 @@ function App() {
   const toggleLupa = () => setLupa(x => !x);
   useEffect(() => {
     const onKey = e => {
+      if (e.defaultPrevented) return; // a control took the key (e.g. a shortcut field that is recording)
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key === 'Escape') { if (editingRef.current) setEditing(false); else setSelected(null); return; }
       const k = e.key.toLowerCase();
@@ -1274,6 +1276,28 @@ function SkinGroups({ label, only, picked, mascot, onPick }) {
   );
 }
 
+// A global shortcut field. What it does (record, pause the set shortcuts
+// meanwhile, save, show why one was refused) is hotkeyField in
+// shared/hotkey.js, tested there; this only draws it.
+function HotkeyField({ name, label, value, startupError }) {
+  const [state, setState] = useState({ rec: false, err: '', held: null });
+  const recording = useRef(false);
+  recording.current = state.rec;
+  // left Settings while recording: the set shortcuts must come back
+  useEffect(() => () => { if (recording.current) window.tm.pauseHotkeys(false); }, []);
+  const f = hotkeyField(state, { name, label, value, startupError, api: window.tm, update: p => setState(x => ({ ...x, ...p })) });
+  return (
+    <div>
+      <div className="opt-line">
+        <M>{label}</M>
+        <span className="opt chip" {...f.chip}>{f.text}</span>
+        {f.clear && <span className="opt link" role="button" {...pressable(f.clear)}>[ clear ]</span>}
+      </div>
+      {f.error && <div role="alert" style={{ color: C.danger }}>{f.error}</div>}
+    </div>
+  );
+}
+
 function Settings({ s, prec, setPrec, lupa, toggleLupa, onEditLayout }) {
   if (!s) return <M>loading settings…</M>;
   const set = (name, value) => window.tm.setSetting(name, value);
@@ -1293,6 +1317,8 @@ function Settings({ s, prec, setPrec, lupa, toggleLupa, onEditLayout }) {
           <Opt on={s.startHidden} label="start in the tray" hint="also when opened by hand" onClick={() => set('startHidden', !s.startHidden)} />
           <Opt on={s.onTop} label="window always on top" hint="[t]" onClick={() => set('onTop', !s.onTop)} />
           <Opt on={s.mini} label="mini widget" hint="[m]" onClick={() => set('mini', !s.mini)} />
+          <HotkeyField name="hotkeyWindow" label="show / hide window" value={s.hotkeyWindow} startupError={s.hotkeyErrors && s.hotkeyErrors.hotkeyWindow} />
+          <HotkeyField name="hotkeyMini" label="show / hide mini widget" value={s.hotkeyMini} startupError={s.hotkeyErrors && s.hotkeyErrors.hotkeyMini} />
         </Panel>
         <Panel title="notifications" gap={6} style={{ flex: '1 1 380px', minWidth: 0 }}>
           <Opt on={s.notifications} label="notifications" onClick={() => set('notifications', !s.notifications)} />

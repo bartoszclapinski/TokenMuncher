@@ -206,6 +206,8 @@ A small always-on-top window with the critter, the burn rate, the four most-used
 | `u` | install the update (found or already downloaded) |
 | `Esc` | leave layout editing, or close the session details |
 
+Two optional global shortcuts work from any app: one shows / hides the window, one shows / hides the mini widget. Both are off by default; set them in Settings → general (click the field, press the combination; it needs Ctrl, Alt or Win, Shift alone is not enough; Esc cancels, Backspace clears). While a field records, the set shortcuts are paused, so pressing one of them changes the field instead of toggling the window. A combination that is invalid or already used by another app is refused with a message and not saved. A `TM_DEMO` instance registers no global shortcuts.
+
 ---
 
 ## Where the numbers come from
@@ -308,6 +310,7 @@ npm run icon            # regenerate the app icon and installer sidebar from the
 |---|---|
 | `src/main/main.js` | frameless window, tray, notifications, settings, updates, IPC |
 | `src/main/settings.js` | settings defaults and validation |
+| `src/main/hotkeys.js`, `src/shared/hotkey.js` | global shortcuts: registration (paused while a field records), key recording and the Settings field |
 | `src/main/sources/*.js` | one file per tool (`claude-poll.js`: Claude polling policy); `demo.js`: demo data |
 | `src/main/store.js`, `jsonl.js`, `usage-cache.js` | shared record store, incremental JSONL reader, on-disk cache |
 | `src/main/aggregate.js` | the UI snapshot: limit estimates, forecasts, sessions, history, session details |

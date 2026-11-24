@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Notification, shell, dialog, clipboard, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Notification, shell, dialog, clipboard, nativeTheme, globalShortcut } = require('electron');
 const os = require('os');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -20,6 +20,7 @@ const { LimitHistory } = require('./limit-history');
 const { WeekSummaries, weeksDue, summarize, weekNews, weeklyLimit, NEWS_MS, SAME_MS } = require('./week-summary');
 const install = require('./install');
 const { normalize, applyChange, THRESHOLD_CHOICES, activeTheme } = require('./settings');
+const { Hotkeys } = require('./hotkeys');
 const { Updater } = require('./update');
 const { themeOf, lookOf } = require('../shared/themes');
 const { buildReport } = require('./diagnostics');
@@ -196,6 +197,9 @@ function createWindow() {
   // Windows shutdown and logoff skip before-quit; let the window close for real.
   win.on('query-session-end', () => { quitting = true; });
   win.on('session-end', () => { quitting = true; rememberBounds(); });
+  // a shortcut field recording when the window lost focus or reloaded may never say it stopped
+  win.on('blur', () => hotkeys.resume());
+  win.webContents.on('did-start-loading', () => hotkeys.resume());
   win.on('closed', () => { win = null; });
 
   // TM_SHOT=<file.png>: render once with real data, save a screenshot, quit (used for testing).
@@ -439,9 +443,34 @@ function sendSettings() {
   const key = JSON.stringify(look());
   if (mini && mini.isVisible() && miniLook !== key) { miniLook = key; mini.send('settings', view); }
 }
+// ── global shortcuts (settings hotkeyWindow / hotkeyMini; '' = off) ──
+// Demo and screenshot instances never register system-wide shortcuts.
+const hotkeys = new Hotkeys({
+  shortcut: globalShortcut,
+  actions: { hotkeyWindow: () => toggleWindow(), hotkeyMini: () => { if (mini) mini.toggle(); } },
+  settings: () => settings,
+  enabled: !SHOT && !DEMO,
+  // registered again (a recording ended) or changed, accepted or refused:
+  // the panel gets the shortcuts and why one is not active
+  onChange: () => sendSettings()
+});
+// One shortcut from the settings panel: validated and registered first, saved
+// only when both work. Returns { ok, error }. (hotkeys' onChange sends the
+// panel the result, also when it was refused.)
+function setHotkey(name, value) {
+  const r = hotkeys.set(name, value);
+  if (!r.ok) return { ok: false, error: r.error };
+  if (r.changed) saveSettings();
+  return { ok: true };
+}
+ipcMain.handle('settings:set-hotkey', (_e, name, value) => setHotkey(name, value));
+// A shortcut field is recording: the set shortcuts are off meanwhile.
+ipcMain.on('settings:hotkeys-pause', (_e, on) => { if (on) hotkeys.pause(); else hotkeys.resume(); });
+
 // What the settings panel shows.
 function settingsView() {
   return {
+    hotkeyWindow: settings.hotkeyWindow, hotkeyMini: settings.hotkeyMini, hotkeyErrors: { ...hotkeys.errors },
     autostart: getOption('autostart'), onTop: getOption('onTop'), mini: getOption('mini'), startHidden: settings.startHidden, countCacheReads: settings.countCacheReads, layout: settings.layout, mascot: settings.mascot,
     // theme: the skin shown (what the windows draw with); the picks behind it
     theme: shownTheme(), themeFixed: settings.theme, themeMode: settings.themeMode, themeDark: settings.themeDark, themeLight: settings.themeLight, systemDark: nativeTheme.shouldUseDarkColors,
@@ -568,7 +597,8 @@ ipcMain.on('update:cancel', () => updater && updater.cancel());
 ipcMain.on('update:page', () => { const u = updater && updater.state().page; if (isReleasePage(u)) shell.openExternal(u); });
 
 app.on('second-instance', (_e, _argv, _cwd, data) => install.onSecondInstance(data, showWindow));
-app.on('before-quit', () => { quitting = true; rememberBounds(); if (mini) mini.destroy(); if (ready && !DEMO) usageCache.saveSync(); limitHistory.flushSync(); });
+app.on('will-quit', () => hotkeys.stop()); // again: also when quitting skipped before-quit
+app.on('before-quit', () => { quitting = true; hotkeys.stop(); rememberBounds(); if (mini) mini.destroy(); if (ready && !DEMO) usageCache.saveSync(); limitHistory.flushSync(); });
 if (DEMO) app.on('quit', () => { try { fs.rmSync(DEMO_DIR, { recursive: true, force: true }); } catch { /* still in use */ } });
 app.on('window-all-closed', () => { if (quitting || SHOT) app.quit(); });
 
@@ -601,6 +631,7 @@ app.whenReady().then(() => {
   });
   if (SHOT) settings.mini.on = !!process.env.TM_MINI; // screenshots don't depend on saved state
   mini.init();
+  hotkeys.registerAll(); // registers nothing in demo / screenshot instances
   if (!SHOT) {
     tray = new TrayIcon({
       toggleWindow,
