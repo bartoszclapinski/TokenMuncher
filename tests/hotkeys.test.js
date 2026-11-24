@@ -14,7 +14,11 @@ test('parseHotkey accepts modifier + key and canonicalizes', () => {
   assert.equal(parseHotkey('shift+ctrl+t'), 'Ctrl+Shift+T');
   assert.equal(parseHotkey('Alt+F12'), 'Alt+F12');
   assert.equal(parseHotkey('CommandOrControl+Alt+Space'), 'CommandOrControl+Alt+Space');
-  assert.equal(parseHotkey('Ctrl++'), 'Ctrl++');
+  // the plus key: Electron splits on '+', so it is stored by name
+  assert.equal(parseHotkey('Ctrl++'), 'Ctrl+Plus');
+  assert.equal(parseHotkey('ctrl+plus'), 'Ctrl+Plus');
+  assert.equal(parseHotkey('Ctrl+Shift++'), 'Ctrl+Shift+Plus');
+  assert.equal(parseHotkey(parseHotkey('Ctrl++')), 'Ctrl+Plus');
 });
 
 test('parseHotkey refuses invalid combinations', () => {

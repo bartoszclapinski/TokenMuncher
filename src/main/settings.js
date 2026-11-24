@@ -58,7 +58,8 @@ function parseHotkey(v) {
   const order = ['CommandOrControl', 'Ctrl', 'Alt', 'Shift', 'Super'];
   mods.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   const lower = key.toLowerCase();
-  const k = key.length === 1 ? key.toUpperCase() : HOTKEY_NAMED.find(n => n.toLowerCase() === lower) || (HOTKEY_NUMPAD.includes(lower) ? lower : key.toUpperCase());
+  // the plus key is written "Plus": Electron splits an accelerator on '+', so "Ctrl++" is not one
+  const k = key === '+' ? 'Plus' : key.length === 1 ? key.toUpperCase() :HOTKEY_NAMED.find(n => n.toLowerCase() === lower) || (HOTKEY_NUMPAD.includes(lower) ? lower : key.toUpperCase());
   return [...mods, k].join('+');
 }
 const hotkey = v => parseHotkey(v) || '';
