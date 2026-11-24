@@ -65,10 +65,6 @@ class Hotkeys {
     return r;
   }
 
-  unregisterAll() {
-    this.shortcut.unregisterAll();
-  }
-
   // Quitting: nothing is registered from here on, whatever arrives late.
   stop() {
     this.stopped = true;

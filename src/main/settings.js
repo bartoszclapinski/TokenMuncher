@@ -132,6 +132,8 @@ function normalize(raw) {
   for (const k of BOOL_KEYS) s[k] = bool(s[k], DEFAULTS[k]);
   s.thresholds = thresholds(s.thresholds, DEFAULTS.thresholds);
   for (const k of HOTKEY_KEYS) s[k] = hotkey(s[k]);
+  // one combination cannot do both (a hand-edited file): the window keeps it
+  if (s.hotkeyMini && s.hotkeyMini === s.hotkeyWindow) s.hotkeyMini = '';
   if (!THEME_IDS.includes(s.theme)) s.theme = DEFAULTS.theme;
   if (!MASCOT_CHOICES.includes(s.mascot)) s.mascot = DEFAULTS.mascot;
   if (!THEME_MODES.includes(s.themeMode)) s.themeMode = DEFAULTS.themeMode;

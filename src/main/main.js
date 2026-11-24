@@ -596,7 +596,7 @@ ipcMain.on('update:cancel', () => updater && updater.cancel());
 ipcMain.on('update:page', () => { const u = updater && updater.state().page; if (isReleasePage(u)) shell.openExternal(u); });
 
 app.on('second-instance', (_e, _argv, _cwd, data) => install.onSecondInstance(data, showWindow));
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => hotkeys.stop()); // again: also when quitting skipped before-quit
 app.on('before-quit', () => { quitting = true; hotkeys.stop(); rememberBounds(); if (mini) mini.destroy(); if (ready && !DEMO) usageCache.saveSync(); limitHistory.flushSync(); });
 if (DEMO) app.on('quit', () => { try { fs.rmSync(DEMO_DIR, { recursive: true, force: true }); } catch { /* still in use */ } });
 app.on('window-all-closed', () => { if (quitting || SHOT) app.quit(); });

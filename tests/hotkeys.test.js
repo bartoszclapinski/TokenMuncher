@@ -37,6 +37,10 @@ test('parseHotkey refuses CommandOrControl next to Ctrl or Super (same modifier 
 test('hotkeys: normalize drops bad stored values', () => {
   assert.equal(normalize({ hotkeyWindow: 'nonsense' }).hotkeyWindow, '');
   assert.equal(normalize({ hotkeyMini: 'ctrl+alt+m' }).hotkeyMini, 'Ctrl+Alt+M');
+  // the same combination for both (hand-edited file): only the window keeps it
+  const dup = normalize({ hotkeyWindow: 'Ctrl+Alt+W', hotkeyMini: 'alt+ctrl+w' });
+  assert.equal(dup.hotkeyWindow, 'Ctrl+Alt+W');
+  assert.equal(dup.hotkeyMini, '');
 });
 
 test('hotkeys cannot be saved through the generic applyChange (only setHotkey, after registering)', () => {
@@ -401,7 +405,7 @@ test('Hotkeys registers the stored shortcuts at startup and they fire their acti
   gs.press('Ctrl+Alt+M');
   assert.deepEqual(fired, ['window', 'mini']);
   assert.deepEqual(hk.errors, {});
-  hk.unregisterAll();
+  hk.stop();
   assert.equal(gs.active.size, 0);
 });
 
