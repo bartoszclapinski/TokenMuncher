@@ -33,7 +33,7 @@ function claudeResponse(S, r, sid, ts, project, model, ctx) {
   const total = tk.in + tk.out + tk.cr + tk.cw5;
   const s = S.session(sid, { provider: 'claude', project, app: 'Claude Code', model });
   if (ts >= s.lastTs) { s.lastTs = ts; s.ctx = tk.in + tk.cr + tk.cw5; s.ctxMax = 1e6; s.ctxTs = ts; s.model = model; }
-  S.addRecord(`demo:${sid}:${ts}`, { ts, provider: 'claude', sid, project, app: 'Claude Code', model, fam: family(model), in: tk.in, out: tk.out, cr: tk.cr, cw: tk.cw5, total, cost: costOf(model, tk) });
+  S.addRecord(`demo:${sid}:${ts}`, { ts, provider: 'claude', sid, project, app: 'Claude Code', model, fam: family(model), in: tk.in, out: tk.out, cr: tk.cr, cw: tk.cw5, cw1: 0, total, cost: costOf(model, tk) });
   if (r() < 0.6) {
     const text = ACTIONS[Math.floor(r() * ACTIONS.length)];
     S.addEvent(`demo:e:${sid}:${ts}`, { ts, provider: 'claude', project, text, tok: total, cr: tk.cr, kind: 'tool' }, sid);

@@ -55,6 +55,12 @@ function priceOf(model) {
   return p;
 }
 
+// True when the model has a real Claude price (a table row or a known family);
+// false for models priceOf can only guess (e.g. gpt-* seen through Cursor).
+function hasClaudePrice(model) {
+  return TABLE.some(r => (model || '').startsWith(r[0])) || family(model) !== 'other';
+}
+
 // u: { in, out, cr, cw5, cw1 } token counts
 function costOf(model, u) {
   const p = priceOf(model);
@@ -99,4 +105,4 @@ function costGemini(model, u) {
   return (u.in * row[1] + u.cr * row[2] + u.out * row[3]) / 1e6;
 }
 
-module.exports = { costOf, costOpenAI, costGemini, family, displayName };
+module.exports = { priceOf, costOf, costOpenAI, costGemini, hasClaudePrice, family, displayName };

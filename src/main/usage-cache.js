@@ -14,7 +14,10 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 
-const VERSION = 1;
+// Bump when the shape of stored records changes, so files written in an older
+// format are read again from the logs.
+// 2: records carry cw1 (1-hour cache writes), needed to price cache writes.
+const VERSION = 2;
 
 function serialize(store, sources, app) {
   const out = { version: VERSION, app, savedAt: Date.now(), store: store.toJSON(), sources: {} };

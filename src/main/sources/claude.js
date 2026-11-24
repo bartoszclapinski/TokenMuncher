@@ -210,7 +210,7 @@ class ClaudeSource {
 
     S.addRecord('claude:' + (m.id || d.uuid) + ':' + (d.requestId || ''), {
       ts, provider: 'claude', sid, project, app: s.app, model: m.model, fam: family(m.model),
-      in: tk.in, out: tk.out, cr: tk.cr, cw, total, cost: costOf(m.model, tk)
+      in: tk.in, out: tk.out, cr: tk.cr, cw, cw1, total, cost: costOf(m.model, tk)
     });
 
     if (Array.isArray(m.content)) {
