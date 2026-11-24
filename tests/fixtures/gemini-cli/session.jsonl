@@ -1,0 +1,8 @@
+{"sessionId":"00000000-0000-4000-8000-000000000002","projectHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","startTime":"2026-11-20T11:00:00.000Z","lastUpdated":"2026-11-20T11:00:00.000Z","kind":"main"}
+{"id":"msg-1","timestamp":"2026-11-20T11:00:00.000Z","type":"user","content":"<prompt>"}
+{"id":"msg-2","timestamp":"2026-11-20T11:00:05.000Z","type":"gemini","content":"<answer>","model":"gemini-2.5-pro","tokens":null}
+{"id":"msg-2","timestamp":"2026-11-20T11:00:05.000Z","type":"gemini","content":"<answer>","model":"gemini-2.5-pro","tokens":{"input":2000,"output":300,"cached":500,"thoughts":20,"tool":0,"total":2320},"toolCalls":[{"id":"call-1","name":"run_shell_command","args":{"command":"<command>"},"status":"success","timestamp":"2026-11-20T11:00:06.000Z"}]}
+{"$set":{"lastUpdated":"2026-11-20T11:00:06.000Z","summary":"<summary>"}}
+{"id":"msg-3","timestamp":"2026-11-20T11:01:00.000Z","type":"gemini","content":"<answer>","model":"gemini-2.5-flash","tokens":{"input":1500,"output":50,"cached":0,"total":1550}}
+{"$rewindTo":"msg-3"}
+{"id":"msg-4","timestamp":"2026-11-20T11:02:00.000Z","type":"gemini","content":"<answer>","model":"gemini-2.5-flash","tokens":{"input":1600,"output":60,"cached":1000,"total":1660}}

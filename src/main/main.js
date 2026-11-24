@@ -9,6 +9,7 @@ const { ClaudeSource } = require('./sources/claude');
 const { CodexSource } = require('./sources/codex');
 const { CursorSource } = require('./sources/cursor');
 const { CopilotSource } = require('./sources/copilot');
+const { GeminiSource } = require('./sources/gemini');
 const { TrayIcon } = require('./tray');
 const { MiniWidget } = require('./mini');
 const { critterLarge } = require('./icon');
@@ -79,7 +80,7 @@ const sources = DEMO ? require('./sources/demo').demoSources(store) : [
     estimate: key => { const a = aggregator.anchors.get(key); return a ? a.est : null; },
     rate: key => aggregator.lastK.get(key) || null
   }),
-  new CursorSource(store), new CodexSource(store), new CopilotSource()
+  new CursorSource(store), new CodexSource(store), new CopilotSource(), new GeminiSource(store)
 ];
 const limitHistory = new LimitHistory(path.join(app.getPath('userData'), 'limit-history.jsonl'));
 // Finished weeks, summed up once each (demo mode: made up, in memory).

@@ -9,7 +9,7 @@ test('normalize fills defaults and keeps unknown keys', () => {
   assert.equal(s.notifications, true);
   assert.equal(s.forecastNotify, true);
   assert.equal(s.startHidden, false);
-  assert.deepEqual(s.sources, { claude: true, cursor: true, codex: true, copilot: true });
+  assert.deepEqual(s.sources, { claude: true, cursor: true, codex: true, copilot: true, gemini: true });
   assert.deepEqual(s.bounds, { x: 1 });
   assert.deepEqual(s.mini, { on: true });
   assert.notEqual(s.thresholds, DEFAULTS.thresholds, 'a copy, not the shared default array');
@@ -19,7 +19,7 @@ test('normalize rejects bad values from a hand-edited file', () => {
   const s = normalize({ notifications: 'yes', thresholds: [90, 'x', 12, 80, 90], sources: { claude: false, cursor: 0, other: false } });
   assert.equal(s.notifications, true);
   assert.deepEqual(s.thresholds, [80, 90]);
-  assert.deepEqual(s.sources, { claude: false, cursor: true, codex: true, copilot: true });
+  assert.deepEqual(s.sources, { claude: false, cursor: true, codex: true, copilot: true, gemini: true });
   assert.deepEqual(normalize(null).thresholds, [80, 90, 100]);
   assert.deepEqual(normalize([1, 2]).sources.claude, true);
 });

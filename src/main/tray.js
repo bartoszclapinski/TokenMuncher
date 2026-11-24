@@ -2,20 +2,7 @@
 // current percents, click to show/hide the window, and a settings menu.
 const { Tray, Menu } = require('electron');
 const { critterIcon, statusFor } = require('./icon');
-const { shortName } = require('../shared/mini');
-
-function tooltipText(snap) {
-  if (!snap) return 'TokenMuncher · loading…';
-  const lines = ['TokenMuncher'];
-  for (const p of snap.providers) {
-    const ls = snap.limits.filter(l => l.provider === p.id);
-    if (p.error) lines.push(`${p.id}: ${p.error}`);
-    else if (ls.length) lines.push(`${p.id} ` + ls.map(l => `${shortName(l.name)} ${Math.round(l.est)}%`).join(' · '));
-  }
-  if (lines.length === 1) lines.push(snap.providers.length ? 'loading…' : 'no supported tools found');
-  const text = lines.join('\n');
-  return text.length > 127 ? text.slice(0, 126) + '…' : text; // Windows tooltip limit
-}
+const { tooltipText } = require('../shared/mini');
 
 class TrayIcon {
   // api: { toggleWindow, refresh, testNotification, quit, getOption(name), setOption(name, value), look() → { theme, mascot } (resolved) }

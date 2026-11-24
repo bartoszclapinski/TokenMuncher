@@ -42,4 +42,20 @@ function pickHeadline(limits, now) {
   return { kind: 'ok' };
 }
 
-module.exports = { shortName, pickMiniLimits, pickHeadline };
+// The tray tooltip: one line per tool with its error, its limits, or (a tool
+// without limits, e.g. Gemini CLI) its note such as "usage only".
+function tooltipText(snap) {
+  if (!snap) return 'TokenMuncher · loading…';
+  const lines = ['TokenMuncher'];
+  for (const p of snap.providers) {
+    const ls = snap.limits.filter(l => l.provider === p.id);
+    if (p.error) lines.push(`${p.id}: ${p.error}`);
+    else if (ls.length) lines.push(`${p.id} ` + ls.map(l => `${shortName(l.name)} ${Math.round(l.est)}%`).join(' · '));
+    else if (p.note) lines.push(`${p.id}: ${p.note}`);
+  }
+  if (lines.length === 1) lines.push(snap.providers.length ? 'loading…' : 'no supported tools found');
+  const text = lines.join('\n');
+  return text.length > 127 ? text.slice(0, 126) + '…' : text; // Windows tooltip limit
+}
+
+module.exports = { shortName, pickMiniLimits, pickHeadline, tooltipText };

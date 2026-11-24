@@ -15,7 +15,7 @@ test('every skin has every colour, provider and tray colour, a group and a known
     assert.equal(typeof t.light, 'boolean');
     assert.deepEqual(Object.keys(t.c).sort(), COLOR_KEYS.slice().sort(), `${id}: colour keys`);
     for (const v of Object.values(t.c)) assert.match(v, /^(#[0-9a-f]{6}|oklch\([\d. ]+\))$/, `${id}: ${v}`);
-    assert.deepEqual(Object.keys(t.prov).sort(), ['claude', 'codex', 'copilot', 'cursor']);
+    assert.deepEqual(Object.keys(t.prov).sort(), ['claude', 'codex', 'copilot', 'cursor', 'gemini']);
     assert.ok(MASCOT_IDS.includes(t.mascot), `${id}: mascot ${t.mascot}`);
     assert.deepEqual(Object.keys(t.fam).sort(), ['fable', 'haiku', 'mythos']);
     for (const rgb of Object.values(t.tray)) assert.ok(rgb.length === 3 && rgb.every(n => Number.isInteger(n) && n >= 0 && n <= 255), `${id}: tray ${rgb}`);
@@ -119,7 +119,7 @@ test('every skin keeps colours shown side by side apart', () => {
     const { c, prov, fam } = THEMES[id];
     // The charts (FAM in app.jsx): model families, other tools' models in their
     // provider's colour, and "other" (muted, also an unknown provider).
-    apart(id, { opus: c.clay, sonnet: c.teal, haiku: fam.haiku, fable: fam.fable, cursor: prov.cursor, codex: prov.codex, copilot: prov.copilot, other: c.muted }, 0.07);
+    apart(id, { opus: c.clay, sonnet: c.teal, haiku: fam.haiku, fable: fam.fable, cursor: prov.cursor, codex: prov.codex, copilot: prov.copilot, gemini: prov.gemini, other: c.muted }, 0.07);
     // Provider names side by side in the header and tables; claude's colour
     // only names the tool (its models take their family's colour).
     apart(id, { ...prov, other: c.muted }, 0.07);
